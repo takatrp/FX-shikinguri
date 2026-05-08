@@ -99,6 +99,8 @@ const inputIds = [
   "collectCurrent",
   "collectNext",
   "collectAfterNext",
+  "collectBill",
+  "collectEReceivable",
   "billMaturity",
   "eReceivableMaturity",
   "costRate",
@@ -964,6 +966,8 @@ function buildForecast() {
   const currentPct = Number(inputs.collectCurrent || 0) / 100;
   const nextPct = Number(inputs.collectNext || 0) / 100;
   const afterNextPct = Number(inputs.collectAfterNext || 0) / 100;
+  const billPct = Number(inputs.collectBill || 0) / 100;
+  const eReceivablePct = Number(inputs.collectEReceivable || 0) / 100;
   const billMaturity = Math.max(1, Number(inputs.billMaturity || 1));
   const eReceivableMaturity = Math.max(1, Number(inputs.eReceivableMaturity || 1));
   const collectionMode = getCollectionMode();
@@ -984,8 +988,10 @@ function buildForecast() {
     const priorSalesCollection = index >= 1 ? salesForecast * nextPct : openingAr;
     const twoMonthSalesCollection = index >= 2 ? salesForecast * afterNextPct : 0;
     const salesCollection = currentSalesCollection + priorSalesCollection + twoMonthSalesCollection;
-    const billCollection = existingBillCollections[index] || 0;
-    const eReceivableCollection = existingEReceivableCollections[index] || 0;
+    const futureBillCollection = index >= billMaturity ? salesForecast * billPct : 0;
+    const futureEReceivableCollection = index >= eReceivableMaturity ? salesForecast * eReceivablePct : 0;
+    const billCollection = (existingBillCollections[index] || 0) + futureBillCollection;
+    const eReceivableCollection = (existingEReceivableCollections[index] || 0) + futureEReceivableCollection;
     const otherIn = state.manual.otherIn[index] || 0;
     const purchasePayment = salesForecast * costRate;
     const loanRepayment = state.manual.loanRepayment[index] ?? baseLoanRepayment;

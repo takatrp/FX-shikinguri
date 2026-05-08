@@ -352,6 +352,10 @@ label input {
   gap: 8px;
 }
 
+.split-fields.five {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
 .split-fields.two {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
@@ -635,6 +639,7 @@ thead th:first-child {
   }
 
   .split-fields,
+  .split-fields.five,
   .split-fields.two {
     grid-template-columns: 1fr;
   }

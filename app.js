@@ -69,6 +69,7 @@ const els = {
   parseTextButton: document.querySelector("#parseTextButton"),
   sampleButton: document.querySelector("#sampleButton"),
   exportButton: document.querySelector("#exportButton"),
+  printButton: document.querySelector("#printButton"),
   recalculateButton: document.querySelector("#recalculateButton"),
   importStatus: document.querySelector("#importStatus"),
   monthMetric: document.querySelector("#monthMetric"),
@@ -86,6 +87,7 @@ const els = {
   rowCount: document.querySelector("#rowCount"),
   cashflowHead: document.querySelector("#cashflowTable thead"),
   cashflowBody: document.querySelector("#cashflowTable tbody"),
+  printReport: document.querySelector("#printReport"),
   emptyTableTemplate: document.querySelector("#emptyTableTemplate")
 };
 
@@ -141,6 +143,10 @@ function escapeHtml(value) {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#039;");
+}
+
+function inputValue(id, fallback = "") {
+  return document.querySelector(`#${id}`)?.value || fallback;
 }
 
 function parseAmount(value) {
@@ -1045,9 +1051,8 @@ function ensureManualArrays(length, baseLoanRepayment) {
   });
 }
 
-function renderForecast(rows) {
-  els.cashflowHead.innerHTML = `<tr><th>項目</th>${rows.map((row) => `<th>${row.month}</th>`).join("")}</tr>`;
-  const lines = [
+function getForecastLines() {
+  return [
     { label: "月初資金", key: "opening" },
     { label: "入金", section: true },
     { label: "売上回収", key: "salesCollection" },
@@ -1065,6 +1070,11 @@ function renderForecast(rows) {
     { label: "出金計", key: "totalOut" },
     { label: "月末資金", key: "ending", cashEnd: true }
   ];
+}
+
+function renderForecast(rows) {
+  els.cashflowHead.innerHTML = `<tr><th>項目</th>${rows.map((row) => `<th>${row.month}</th>`).join("")}</tr>`;
+  const lines = getForecastLines();
 
   els.cashflowBody.innerHTML = lines
     .map((line) => {
@@ -1376,22 +1386,7 @@ function sampleText() {
 function exportCsv() {
   if (!state.forecastRows.length) return;
   const header = ["項目", ...state.forecastRows.map((row) => row.month)];
-  const lines = [
-    ["月初資金", "opening"],
-    ["売上回収", "salesCollection"],
-    ["受取手形回収（期首分）", "existingBillCollection"],
-    ["受取手形回収（新規売上分）", "futureBillCollection"],
-    ["電子記録債権回収（期首分）", "existingEReceivableCollection"],
-    ["電子記録債権回収（新規売上分）", "futureEReceivableCollection"],
-    ["その他入金", "otherIn"],
-    ["入金計", "totalIn"],
-    ["仕入・外注支払", "purchasePayment"],
-    ["固定費支払", "fixedCosts"],
-    ["借入返済", "loanRepayment"],
-    ["その他出金", "otherOut"],
-    ["出金計", "totalOut"],
-    ["月末資金", "ending"]
-  ];
+  const lines = getForecastLines().filter((line) => !line.section).map((line) => [line.label, line.key]);
   const csv = [header, ...lines.map(([label, key]) => [label, ...state.forecastRows.map((row) => Math.round(row[key] || 0))])]
     .map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(","))
     .join("\n");
@@ -1402,6 +1397,152 @@ function exportCsv() {
   link.download = `資金繰り表_${new Date().toISOString().slice(0, 10)}.csv`;
   link.click();
   URL.revokeObjectURL(url);
+}
+
+function printCashflowReport() {
+  if (!state.forecastRows.length) {
+    buildForecast();
+  }
+  if (!state.forecastRows.length) {
+    alert("資金繰り表を作成してから印刷してください。");
+    return;
+  }
+  buildPrintReport();
+  window.print();
+}
+
+function buildPrintReport() {
+  const rows = state.forecastRows;
+  const minimum = rows.reduce((min, row) => row.ending < min.ending ? row : min, rows[0]);
+  const collectionTotal = ["collectCurrent", "collectNext", "collectAfterNext", "collectBill", "collectEReceivable"]
+    .reduce((sum, id) => sum + Number(inputValue(id, 0) || 0), 0);
+  const modeText = getCollectionMode() === "detail" ? "厳密（対象月末明細の期日月に入金反映）" : "簡易（対象月末残高を回収月数で配分）";
+
+  els.printReport.innerHTML = `
+    <div class="print-page">
+      <header class="print-header">
+        <div>
+          <p>金融機関提出用</p>
+          <h1>資金繰り予定表</h1>
+        </div>
+        <div class="print-date">作成日 ${escapeHtml(inputValue("reportDate", todayIso()))}</div>
+      </header>
+
+      ${buildReportMetaTable()}
+      ${buildReportSummary(minimum)}
+      ${buildReportForecastTable(rows)}
+      ${buildReportAssumptions(modeText, collectionTotal)}
+      ${buildReportEvidence()}
+      ${buildReportReceivableDetails()}
+      ${buildReportSources()}
+    </div>`;
+}
+
+function buildReportMetaTable() {
+  const metaRows = [
+    ["会社名", inputValue("companyName", "未入力")],
+    ["提出先", inputValue("submitTo", "未入力")],
+    ["作成者", inputValue("preparedBy", "未入力")],
+    ["実績基準月", last(state.months, "-")],
+    ["予測期間", `${state.forecastRows[0]?.month || "-"} から ${last(state.forecastRows).month || "-"} まで`],
+    ["補足事項", inputValue("reportNote", "-")]
+  ];
+  return `<table class="print-meta"><tbody>${metaRows.map(([label, value]) =>
+    `<tr><th>${escapeHtml(label)}</th><td>${escapeHtml(value)}</td></tr>`).join("")}</tbody></table>`;
+}
+
+function buildReportSummary(minimum) {
+  const lastRow = last(state.forecastRows);
+  return `<section class="print-section">
+    <h2>資金繰りサマリー</h2>
+    <div class="print-summary">
+      <div><span>開始資金</span><strong>${formatYen(parseAmount(inputValue("openingCash")))}円</strong></div>
+      <div><span>最終月末資金</span><strong>${formatYen(lastRow.ending)}円</strong></div>
+      <div><span>最低月末資金</span><strong>${formatYen(minimum.ending)}円</strong><em>${escapeHtml(minimum.month)}</em></div>
+    </div>
+  </section>`;
+}
+
+function buildReportForecastTable(rows) {
+  const lines = getForecastLines().filter((line) => !line.editable || ["otherIn", "otherOut", "loanRepayment"].includes(line.key));
+  return `<section class="print-section">
+    <h2>月次資金繰り表</h2>
+    <table class="print-cashflow">
+      <thead><tr><th>項目</th>${rows.map((row) => `<th>${escapeHtml(row.month)}</th>`).join("")}</tr></thead>
+      <tbody>${lines.map((line) => {
+        if (line.section) return `<tr class="print-section-row"><td colspan="${rows.length + 1}">${escapeHtml(line.label)}</td></tr>`;
+        const className = line.cashEnd ? "print-total-row" : "";
+        return `<tr class="${className}"><td>${escapeHtml(line.label)}</td>${rows.map((row) => `<td>${formatYen(row[line.key] || 0)}</td>`).join("")}</tr>`;
+      }).join("")}</tbody>
+    </table>
+  </section>`;
+}
+
+function buildReportAssumptions(modeText, collectionTotal) {
+  const assumptions = [
+    ["月商見込", `${formatYen(parseAmount(inputValue("salesForecast")))}円`],
+    ["回収内訳", `当月 ${inputValue("collectCurrent", 0)}% / 翌月 ${inputValue("collectNext", 0)}% / 翌々月 ${inputValue("collectAfterNext", 0)}% / 手形 ${inputValue("collectBill", 0)}% / 電債 ${inputValue("collectEReceivable", 0)}%（合計 ${collectionTotal}%）`],
+    ["手形・電債の計算", modeText],
+    ["手形回収月数", `${inputValue("billMaturity", 0)}か月`],
+    ["電債回収月数", `${inputValue("eReceivableMaturity", 0)}か月`],
+    ["仕入・外注率", `${inputValue("costRate", 0)}%`],
+    ["固定費/月", `${formatYen(parseAmount(inputValue("fixedCosts")))}円`],
+    ["借入返済/月", `${formatYen(parseAmount(inputValue("loanRepayment")))}円`]
+  ];
+  return `<section class="print-section">
+    <h2>計算前提・仮定</h2>
+    <table class="print-assumptions"><tbody>${assumptions.map(([label, value]) =>
+      `<tr><th>${escapeHtml(label)}</th><td>${escapeHtml(value)}</td></tr>`).join("")}</tbody></table>
+    ${collectionTotal !== 100 ? `<p class="print-note">注: 回収内訳の合計が100%ではありません。未設定分または重複設定がないか確認してください。</p>` : ""}
+  </section>`;
+}
+
+function buildReportEvidence() {
+  if (!state.presetEvidence.length) return "";
+  return `<section class="print-section">
+    <h2>自動設定金額の根拠</h2>
+    <table class="print-assumptions"><tbody>${state.presetEvidence.map((item) => {
+      const valueText = item.suffix === "%" ? `${formatYen(item.value)}%` : `${formatYen(item.value)}円`;
+      const details = item.values.map((entry) => `${entry.month}: ${formatYen(entry.value)}${item.suffix === "%" ? "" : "円"}`).join(" / ");
+      return `<tr><th>${escapeHtml(item.label)}</th><td>${escapeHtml(valueText)}<br>${escapeHtml(item.method)}<br>${escapeHtml(item.source)}<br>${escapeHtml(details)}</td></tr>`;
+    }).join("")}</tbody></table>
+  </section>`;
+}
+
+function buildReportReceivableDetails() {
+  if (getCollectionMode() !== "detail") return "";
+  return `<section class="print-section">
+    <h2>受取手形・電子記録債権の明細</h2>
+    ${buildDetailReportTable("受取手形", state.billDetails)}
+    ${buildDetailReportTable("電子記録債権", state.eReceivableDetails)}
+  </section>`;
+}
+
+function buildDetailReportTable(title, details) {
+  const rows = details.filter((detail) => detail.amount || detail.dueDate || detail.issueDate || detail.memo);
+  if (!rows.length) return `<h3>${escapeHtml(title)}</h3><p class="print-note">明細入力なし</p>`;
+  return `<h3>${escapeHtml(title)}</h3>
+    <table class="print-assumptions">
+      <thead><tr><th>金額</th><th>振出日/発生日</th><th>期日</th><th>メモ</th></tr></thead>
+      <tbody>${rows.map((detail) => `<tr><td>${formatYen(detail.amount)}円</td><td>${escapeHtml(detail.issueDate || "-")}</td><td>${escapeHtml(detail.dueDate || "-")}</td><td>${escapeHtml(detail.memo || "-")}</td></tr>`).join("")}</tbody>
+    </table>`;
+}
+
+function buildReportSources() {
+  if (!state.sources.length) return "";
+  return `<section class="print-section">
+    <h2>取込資料</h2>
+    <table class="print-assumptions"><tbody>${state.sources.map((source) =>
+      `<tr><th>${escapeHtml(source.name || "取込データ")}</th><td>${escapeHtml(source.kind || "-")} / ${formatYen(source.rowCount || 0)}行</td></tr>`).join("")}</tbody></table>
+  </section>`;
+}
+
+function todayIso() {
+  const date = new Date();
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 els.pdfInput.addEventListener("change", async (event) => {
@@ -1448,6 +1589,7 @@ els.recalculateButton.addEventListener("click", () => {
 });
 
 els.exportButton.addEventListener("click", exportCsv);
+els.printButton.addEventListener("click", printCashflowReport);
 
 els.addBillDetail.addEventListener("click", () => addReceivableDetail("bill"));
 els.addEReceivableDetail.addEventListener("click", () => addReceivableDetail("eReceivable"));
@@ -1479,5 +1621,6 @@ inputIds.forEach((id) => {
 
 state.billDetails.push(createReceivableDetail());
 state.eReceivableDetails.push(createReceivableDetail());
+if (!inputValue("reportDate")) document.querySelector("#reportDate").value = todayIso();
 renderReceivableDetails();
 renderEmptyTable();

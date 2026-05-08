@@ -15,6 +15,7 @@
     <div class="header-actions">
       <button class="ghost" id="sampleButton" type="button">サンプル</button>
       <button class="primary" id="exportButton" type="button">CSV出力</button>
+      <button class="secondary" id="printButton" type="button">PDF/印刷</button>
     </div>
   </header>
 
@@ -76,6 +77,32 @@
             <h2>前提条件</h2>
             <p>PDFから取れない先行情報だけ調整します。</p>
           </div>
+        </div>
+
+        <div class="control-group">
+          <h3>提出情報</h3>
+          <label>
+            会社名
+            <input id="companyName" type="text" placeholder="株式会社〇〇">
+          </label>
+          <label>
+            提出先
+            <input id="submitTo" type="text" placeholder="〇〇銀行 〇〇支店">
+          </label>
+          <div class="split-fields two">
+            <label>
+              作成日
+              <input id="reportDate" type="date">
+            </label>
+            <label>
+              作成者
+              <input id="preparedBy" type="text" placeholder="松本会計事務所">
+            </label>
+          </div>
+          <label>
+            補足事項
+            <input id="reportNote" type="text" placeholder="必要に応じて提出先への補足を入力">
+          </label>
         </div>
 
         <div class="control-group">
@@ -266,6 +293,8 @@
       </div>
     </section>
   </main>
+
+  <section class="print-report" id="printReport" aria-label="印刷用資金繰り表"></section>
 
   <template id="emptyTableTemplate">
     <tr>

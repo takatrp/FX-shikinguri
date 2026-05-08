@@ -490,6 +490,10 @@ label input {
   border: 1px solid var(--line);
 }
 
+.print-report {
+  display: none;
+}
+
 .table-panel {
   min-width: 0;
 }
@@ -652,5 +656,154 @@ thead th:first-child {
   .header-actions button,
   .panel-head button {
     width: 100%;
+  }
+}
+
+@media print {
+  @page {
+    size: A4 landscape;
+    margin: 10mm;
+  }
+
+  body {
+    background: #fff;
+    color: #111827;
+    font-family: "Yu Gothic", "Meiryo", sans-serif;
+  }
+
+  .app-header,
+  .app-shell {
+    display: none !important;
+  }
+
+  .print-report {
+    display: block;
+  }
+
+  .print-page {
+    width: 100%;
+  }
+
+  .print-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    border-bottom: 2px solid #111827;
+    padding-bottom: 8px;
+    margin-bottom: 10px;
+  }
+
+  .print-header p {
+    margin: 0 0 3px;
+    font-size: 11px;
+    color: #4b5563;
+  }
+
+  .print-header h1 {
+    margin: 0;
+    font-size: 22px;
+    letter-spacing: 0;
+  }
+
+  .print-date {
+    font-size: 12px;
+  }
+
+  .print-section {
+    margin-top: 10px;
+    break-inside: avoid;
+  }
+
+  .print-section h2 {
+    margin: 0 0 5px;
+    font-size: 14px;
+    border-left: 4px solid #111827;
+    padding-left: 6px;
+  }
+
+  .print-section h3 {
+    margin: 7px 0 4px;
+    font-size: 12px;
+  }
+
+  .print-meta,
+  .print-cashflow,
+  .print-assumptions {
+    width: 100%;
+    border-collapse: collapse;
+    min-width: 0;
+  }
+
+  .print-meta th,
+  .print-meta td,
+  .print-cashflow th,
+  .print-cashflow td,
+  .print-assumptions th,
+  .print-assumptions td {
+    border: 1px solid #9ca3af;
+    padding: 4px 5px;
+    font-size: 10px;
+    white-space: normal;
+    text-align: right;
+    background: #fff;
+    color: #111827;
+  }
+
+  .print-meta th,
+  .print-assumptions th,
+  .print-cashflow th {
+    background: #f3f4f6;
+    font-weight: 700;
+  }
+
+  .print-meta th,
+  .print-meta td,
+  .print-assumptions th,
+  .print-assumptions td,
+  .print-cashflow td:first-child,
+  .print-cashflow th:first-child {
+    text-align: left;
+    position: static;
+  }
+
+  .print-meta th {
+    width: 90px;
+  }
+
+  .print-summary {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 6px;
+  }
+
+  .print-summary div {
+    border: 1px solid #9ca3af;
+    padding: 6px;
+  }
+
+  .print-summary span,
+  .print-summary em {
+    display: block;
+    font-size: 10px;
+    color: #4b5563;
+    font-style: normal;
+  }
+
+  .print-summary strong {
+    display: block;
+    margin-top: 2px;
+    font-size: 15px;
+  }
+
+  .print-section-row td,
+  .print-total-row td {
+    background: #e5e7eb;
+    font-weight: 700;
+  }
+
+  .print-note {
+    margin: 5px 0 0;
+    font-size: 10px;
+    color: #374151;
   }
 }

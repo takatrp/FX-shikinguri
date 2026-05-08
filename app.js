@@ -988,10 +988,12 @@ function buildForecast() {
     const priorSalesCollection = index >= 1 ? salesForecast * nextPct : openingAr;
     const twoMonthSalesCollection = index >= 2 ? salesForecast * afterNextPct : 0;
     const salesCollection = currentSalesCollection + priorSalesCollection + twoMonthSalesCollection;
+    const existingBillCollection = existingBillCollections[index] || 0;
+    const existingEReceivableCollection = existingEReceivableCollections[index] || 0;
     const futureBillCollection = index >= billMaturity ? salesForecast * billPct : 0;
     const futureEReceivableCollection = index >= eReceivableMaturity ? salesForecast * eReceivablePct : 0;
-    const billCollection = (existingBillCollections[index] || 0) + futureBillCollection;
-    const eReceivableCollection = (existingEReceivableCollections[index] || 0) + futureEReceivableCollection;
+    const billCollection = existingBillCollection + futureBillCollection;
+    const eReceivableCollection = existingEReceivableCollection + futureEReceivableCollection;
     const otherIn = state.manual.otherIn[index] || 0;
     const purchasePayment = salesForecast * costRate;
     const loanRepayment = state.manual.loanRepayment[index] ?? baseLoanRepayment;
@@ -1005,7 +1007,11 @@ function buildForecast() {
       month,
       opening,
       salesCollection,
+      existingBillCollection,
+      futureBillCollection,
       billCollection,
+      existingEReceivableCollection,
+      futureEReceivableCollection,
       eReceivableCollection,
       otherIn,
       totalIn,
@@ -1045,8 +1051,10 @@ function renderForecast(rows) {
     { label: "月初資金", key: "opening" },
     { label: "入金", section: true },
     { label: "売上回収", key: "salesCollection" },
-    { label: "受取手形期日入金", key: "billCollection" },
-    { label: "電子記録債権期日入金", key: "eReceivableCollection" },
+    { label: "受取手形回収（期首分）", key: "existingBillCollection" },
+    { label: "受取手形回収（新規売上分）", key: "futureBillCollection" },
+    { label: "電子記録債権回収（期首分）", key: "existingEReceivableCollection" },
+    { label: "電子記録債権回収（新規売上分）", key: "futureEReceivableCollection" },
     { label: "その他入金", key: "otherIn", editable: true },
     { label: "入金計", key: "totalIn" },
     { label: "出金", section: true },
@@ -1371,8 +1379,10 @@ function exportCsv() {
   const lines = [
     ["月初資金", "opening"],
     ["売上回収", "salesCollection"],
-    ["受取手形期日入金", "billCollection"],
-    ["電子記録債権期日入金", "eReceivableCollection"],
+    ["受取手形回収（期首分）", "existingBillCollection"],
+    ["受取手形回収（新規売上分）", "futureBillCollection"],
+    ["電子記録債権回収（期首分）", "existingEReceivableCollection"],
+    ["電子記録債権回収（新規売上分）", "futureEReceivableCollection"],
     ["その他入金", "otherIn"],
     ["入金計", "totalIn"],
     ["仕入・外注支払", "purchasePayment"],
@@ -1451,6 +1461,12 @@ inputIds.forEach((id) => {
   if (moneyInputIds.includes(id)) {
     input.addEventListener("input", () => {
       formatMoneyInput(input);
+      buildForecast();
+    });
+  } else {
+    input.addEventListener("input", () => {
+      renderRows();
+      renderMetrics();
       buildForecast();
     });
   }

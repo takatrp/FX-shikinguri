@@ -132,6 +132,63 @@
               <input id="eReceivableMaturity" type="number" min="1" max="6" step="1" value="2">
             </label>
           </div>
+          <div class="mode-block">
+            <span class="mode-title">手形・電債の入金計算</span>
+            <div class="mode-toggle" role="radiogroup" aria-label="手形・電債の入金計算">
+              <label>
+                <input type="radio" name="collectionMode" value="simple" checked>
+                <span>簡易</span>
+              </label>
+              <label>
+                <input type="radio" name="collectionMode" value="detail">
+                <span>厳密</span>
+              </label>
+            </div>
+          </div>
+          <details class="detail-inputs">
+            <summary>受取手形・電子記録債権の明細</summary>
+            <p class="detail-note">対象月末現在の未回収明細を入力します。明細モードでは、期日の月に入金として反映します。</p>
+            <div class="detail-section">
+              <div class="detail-section-head">
+                <h4>受取手形</h4>
+                <button class="ghost small-button" id="addBillDetail" type="button">行追加</button>
+              </div>
+              <div class="detail-table-wrap">
+                <table class="detail-table">
+                  <thead>
+                    <tr>
+                      <th>金額</th>
+                      <th>振出日</th>
+                      <th>期日</th>
+                      <th>メモ</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody id="billDetailsBody"></tbody>
+                </table>
+              </div>
+            </div>
+            <div class="detail-section">
+              <div class="detail-section-head">
+                <h4>電子記録債権</h4>
+                <button class="ghost small-button" id="addEReceivableDetail" type="button">行追加</button>
+              </div>
+              <div class="detail-table-wrap">
+                <table class="detail-table">
+                  <thead>
+                    <tr>
+                      <th>金額</th>
+                      <th>発生日</th>
+                      <th>期日</th>
+                      <th>メモ</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody id="eReceivableDetailsBody"></tbody>
+                </table>
+              </div>
+            </div>
+          </details>
         </div>
 
         <div class="control-group">

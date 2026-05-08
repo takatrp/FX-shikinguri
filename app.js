@@ -77,6 +77,10 @@ const els = {
   loanMetric: document.querySelector("#loanMetric"),
   evidenceSummary: document.querySelector("#evidenceSummary"),
   presetEvidenceList: document.querySelector("#presetEvidenceList"),
+  billDetailsBody: document.querySelector("#billDetailsBody"),
+  eReceivableDetailsBody: document.querySelector("#eReceivableDetailsBody"),
+  addBillDetail: document.querySelector("#addBillDetail"),
+  addEReceivableDetail: document.querySelector("#addEReceivableDetail"),
   basisText: document.querySelector("#basisText"),
   rowsTable: document.querySelector("#rowsTable tbody"),
   rowCount: document.querySelector("#rowCount"),
@@ -112,6 +116,8 @@ const state = {
   forecastRows: [],
   sources: [],
   presetEvidence: [],
+  billDetails: [],
+  eReceivableDetails: [],
   manual: {
     otherIn: [],
     otherOut: [],
@@ -157,6 +163,21 @@ function setMoneyInputValue(id, value) {
   const input = document.querySelector(`#${id}`);
   if (!input || !Number.isFinite(value)) return;
   input.value = formatYen(value);
+}
+
+function getCollectionMode() {
+  return document.querySelector('input[name="collectionMode"]:checked')?.value || "simple";
+}
+
+function createReceivableDetail(overrides = {}) {
+  return {
+    id: `detail-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    amount: 0,
+    issueDate: "",
+    dueDate: "",
+    memo: "",
+    ...overrides
+  };
 }
 
 function average(values) {
@@ -908,6 +929,20 @@ function setInputIfEmpty(id, value, force = false) {
   }
 }
 
+function buildDueDateCollections(details, months) {
+  return months.map((month) =>
+    details.reduce((sum, detail) => {
+      if (!detail.dueDate || !detail.amount) return sum;
+      return dateToMonthKey(detail.dueDate) === month ? sum + Number(detail.amount || 0) : sum;
+    }, 0)
+  );
+}
+
+function dateToMonthKey(dateValue) {
+  const match = String(dateValue || "").match(/^(\d{4})-(\d{2})-\d{2}$/);
+  return match ? `${match[1]}/${match[2]}` : "";
+}
+
 function buildForecast() {
   if (!state.months.length) {
     renderEmptyTable();
@@ -931,12 +966,17 @@ function buildForecast() {
   const afterNextPct = Number(inputs.collectAfterNext || 0) / 100;
   const billMaturity = Math.max(1, Number(inputs.billMaturity || 1));
   const eReceivableMaturity = Math.max(1, Number(inputs.eReceivableMaturity || 1));
+  const collectionMode = getCollectionMode();
 
   const openingAr = last(basis.ar);
   const openingBills = last(basis.bills);
   const openingEReceivables = last(basis.eReceivables);
-  const existingBillCollections = spreadCollection(openingBills, billMaturity, months.length);
-  const existingEReceivableCollections = spreadCollection(openingEReceivables, eReceivableMaturity, months.length);
+  const existingBillCollections = collectionMode === "detail"
+    ? buildDueDateCollections(state.billDetails, months)
+    : spreadCollection(openingBills, billMaturity, months.length);
+  const existingEReceivableCollections = collectionMode === "detail"
+    ? buildDueDateCollections(state.eReceivableDetails, months)
+    : spreadCollection(openingEReceivables, eReceivableMaturity, months.length);
 
   let cash = openingCash;
   const rows = months.map((month, index) => {
@@ -1034,7 +1074,8 @@ function renderForecast(rows) {
     });
   });
 
-  els.basisText.textContent = `${last(state.months)}実績を起点に、${rows.length}か月分を作成`;
+  const modeText = getCollectionMode() === "detail" ? "手形・電債は明細期日で反映" : "手形・電債は簡易配分で反映";
+  els.basisText.textContent = `${last(state.months)}実績を起点に、${rows.length}か月分を作成（${modeText}）`;
 }
 
 function renderForecastCell(line, row, index) {
@@ -1044,6 +1085,70 @@ function renderForecastCell(line, row, index) {
   }
   const className = value < 0 ? "negative" : "";
   return `<td class="${className}">${formatYen(value)}</td>`;
+}
+
+function renderReceivableDetails() {
+  renderDetailRows("bill", state.billDetails, els.billDetailsBody);
+  renderDetailRows("eReceivable", state.eReceivableDetails, els.eReceivableDetailsBody);
+  bindDetailInputs();
+}
+
+function renderDetailRows(kind, details, tbody) {
+  if (!tbody) return;
+  tbody.innerHTML = details.map((detail) => `<tr>
+    <td><input class="money-input detail-amount" type="text" inputmode="numeric" value="${detail.amount ? formatYen(detail.amount) : ""}" data-detail-kind="${kind}" data-detail-id="${detail.id}" data-detail-field="amount"></td>
+    <td><input type="date" value="${escapeHtml(detail.issueDate)}" data-detail-kind="${kind}" data-detail-id="${detail.id}" data-detail-field="issueDate"></td>
+    <td><input type="date" value="${escapeHtml(detail.dueDate)}" data-detail-kind="${kind}" data-detail-id="${detail.id}" data-detail-field="dueDate"></td>
+    <td><input class="detail-memo" type="text" value="${escapeHtml(detail.memo)}" data-detail-kind="${kind}" data-detail-id="${detail.id}" data-detail-field="memo"></td>
+    <td><button class="remove-detail" type="button" data-remove-detail-kind="${kind}" data-remove-detail-id="${detail.id}">削除</button></td>
+  </tr>`).join("");
+}
+
+function bindDetailInputs() {
+  document.querySelectorAll("[data-detail-field]").forEach((input) => {
+    input.addEventListener("input", () => {
+      updateDetailFromInput(input);
+      if (input.dataset.detailField === "amount") formatMoneyInput(input);
+      if (getCollectionMode() === "detail") buildForecast();
+    });
+    input.addEventListener("change", () => {
+      updateDetailFromInput(input);
+      buildForecast();
+    });
+  });
+  document.querySelectorAll("[data-remove-detail-id]").forEach((button) => {
+    button.addEventListener("click", () => {
+      removeReceivableDetail(button.dataset.removeDetailKind, button.dataset.removeDetailId);
+    });
+  });
+}
+
+function updateDetailFromInput(input) {
+  const detail = findReceivableDetail(input.dataset.detailKind, input.dataset.detailId);
+  if (!detail) return;
+  const field = input.dataset.detailField;
+  detail[field] = field === "amount" ? parseAmount(input.value) : input.value;
+}
+
+function findReceivableDetail(kind, id) {
+  return getReceivableDetailList(kind).find((detail) => detail.id === id);
+}
+
+function getReceivableDetailList(kind) {
+  return kind === "bill" ? state.billDetails : state.eReceivableDetails;
+}
+
+function addReceivableDetail(kind) {
+  getReceivableDetailList(kind).push(createReceivableDetail());
+  renderReceivableDetails();
+}
+
+function removeReceivableDetail(kind, id) {
+  const list = getReceivableDetailList(kind);
+  const index = list.findIndex((detail) => detail.id === id);
+  if (index >= 0) list.splice(index, 1);
+  renderReceivableDetails();
+  buildForecast();
 }
 
 function renderEmptyTable() {
@@ -1328,6 +1433,13 @@ els.recalculateButton.addEventListener("click", () => {
 
 els.exportButton.addEventListener("click", exportCsv);
 
+els.addBillDetail.addEventListener("click", () => addReceivableDetail("bill"));
+els.addEReceivableDetail.addEventListener("click", () => addReceivableDetail("eReceivable"));
+
+document.querySelectorAll('input[name="collectionMode"]').forEach((input) => {
+  input.addEventListener("change", buildForecast);
+});
+
 inputIds.forEach((id) => {
   const input = document.querySelector(`#${id}`);
   if (moneyInputIds.includes(id)) {
@@ -1343,4 +1455,7 @@ inputIds.forEach((id) => {
   });
 });
 
+state.billDetails.push(createReceivableDetail());
+state.eReceivableDetails.push(createReceivableDetail());
+renderReceivableDetails();
 renderEmptyTable();

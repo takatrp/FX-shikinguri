@@ -356,6 +356,136 @@ label input {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+.mode-block {
+  margin-top: 14px;
+}
+
+.mode-title {
+  display: block;
+  color: #344054;
+  font-size: 13px;
+  font-weight: 800;
+  margin-bottom: 8px;
+}
+
+.mode-toggle {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.mode-toggle label {
+  margin: 0;
+}
+
+.mode-toggle input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.mode-toggle span {
+  display: grid;
+  place-items: center;
+  min-height: 34px;
+  border-radius: 6px;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.mode-toggle input:checked + span {
+  background: #fff;
+  color: var(--navy);
+  box-shadow: 0 2px 8px rgba(26, 41, 57, 0.12);
+}
+
+.detail-inputs {
+  margin-top: 14px;
+}
+
+.detail-inputs summary {
+  cursor: pointer;
+  color: var(--navy);
+  font-weight: 800;
+}
+
+.detail-note {
+  margin: 10px 0 0;
+}
+
+.detail-section {
+  margin-top: 14px;
+}
+
+.detail-section-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.detail-section-head h4 {
+  margin: 0;
+  font-size: 14px;
+}
+
+.small-button {
+  min-height: 32px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+
+.detail-table-wrap {
+  overflow-x: auto;
+}
+
+.detail-table {
+  min-width: 520px;
+}
+
+.detail-table th,
+.detail-table td {
+  padding: 7px 6px;
+  font-size: 12px;
+}
+
+.detail-table th:first-child,
+.detail-table td:first-child {
+  position: static;
+}
+
+.detail-table input {
+  min-height: 32px;
+  padding: 5px 7px;
+}
+
+.detail-table input[type="date"] {
+  min-width: 130px;
+}
+
+.detail-table .detail-amount {
+  min-width: 100px;
+  text-align: right;
+}
+
+.detail-table .detail-memo {
+  min-width: 120px;
+}
+
+.remove-detail {
+  width: 30px;
+  min-height: 30px;
+  padding: 0;
+  background: #fff;
+  color: var(--red);
+  border: 1px solid var(--line);
+}
+
 .table-panel {
   min-width: 0;
 }

@@ -20,23 +20,26 @@
   </header>
 
   <main class="app-shell">
-    <section class="panel import-panel" aria-label="PDF読込">
+    <section class="panel import-panel" aria-label="CSV読込">
       <div class="panel-head">
         <div>
           <h2>勘定科目残高推移表</h2>
-          <p>PDFまたはB/S・P/L・CRのCSVから月次残高を読み取ります。</p>
+          <p>CSVから月次残高を読み取ります。</p>
         </div>
-        <span class="status-pill" id="importStatus">未読込</span>
+        <div class="import-actions">
+          <a class="manual-button" href="./CSV出力マニュアル.pdf" target="_blank" rel="noopener">CSV出力マニュアルはこちら</a>
+          <span class="status-pill" id="importStatus">未読込</span>
+        </div>
       </div>
       <label class="drop-zone" for="pdfInput">
-        <input id="pdfInput" type="file" accept="application/pdf,.csv,text/csv" multiple>
-        <span class="drop-title">PDF / CSVを選択</span>
-        <span class="drop-sub">B/S・P/L・CRのCSVもまとめてドラッグできます</span>
+        <input id="pdfInput" type="file" accept=".csv,text/csv" multiple>
+        <span class="drop-title">CSVを選択</span>
+        <span class="drop-sub">CSVファイルをここへドラッグ＆ドロップできます</span>
       </label>
-      <p class="import-message" id="importMessage">PDFは端末内だけで処理します。読み取りに失敗した場合は、下のテキスト欄に抽出内容を残します。</p>
+      <p class="import-message" id="importMessage">CSVは端末内だけで処理します。読み取りに失敗した場合は、下のテキスト欄に抽出内容を残します。</p>
       <details class="text-import">
         <summary>テキストで読み込む</summary>
-        <textarea id="rawTextInput" rows="7" placeholder="PDFからコピーしたテキストを貼り付け"></textarea>
+        <textarea id="rawTextInput" rows="7" placeholder="CSVの内容を貼り付け"></textarea>
         <button class="secondary" id="parseTextButton" type="button">読み取り</button>
       </details>
     </section>
@@ -64,7 +67,7 @@
       <details id="presetEvidenceDetails">
         <summary>
           <span>プリセット根拠</span>
-          <small id="evidenceSummary">PDFまたはCSV読込後に表示します</small>
+          <small id="evidenceSummary">CSV読込後に表示します</small>
         </summary>
         <div id="presetEvidenceList" class="evidence-list"></div>
       </details>
@@ -75,7 +78,7 @@
         <div class="panel-head tight">
           <div>
             <h2>前提条件</h2>
-            <p>PDFから取れない先行情報だけ調整します。</p>
+            <p>CSVから取れない先行情報だけ調整します。</p>
           </div>
         </div>
 
@@ -261,7 +264,7 @@
         <div class="panel-head">
           <div>
             <h2>資金繰り表</h2>
-            <p id="basisText">PDF読込後に自動作成します。</p>
+            <p id="basisText">CSV読込後に自動作成します。</p>
           </div>
           <button class="secondary" id="recalculateButton" type="button">再計算</button>
         </div>

@@ -568,7 +568,7 @@ function parseBalancePdfPages(pageItems) {
     const anchors = page.monthAnchors.length >= 3 ? page.monthAnchors : bestAnchors;
     page.lines.forEach((line) => {
       const row = parsePdfAccountLine(line, anchors);
-      if (row) rows.push({ ...row, sourceName: `PDF ${page.pageNumber}頁` });
+      if (row) rows.push({ ...row, sourceName: `取込データ ${page.pageNumber}頁` });
     });
   });
 
@@ -577,7 +577,7 @@ function parseBalancePdfPages(pageItems) {
     rows: dedupeRows(rows).filter((row) => row.values.length >= Math.min(3, months.length)),
     text: fallbackText,
     source: {
-      name: "PDF",
+      name: "取込データ",
       kind: summarizeKinds(rows),
       rowCount: rows.length
     }
@@ -1322,7 +1322,7 @@ async function loadPdfJs() {
           lastError = error;
         }
       }
-      throw new Error(`PDF.jsを読み込めませんでした。ネットワーク接続を確認してください。${lastError ? ` (${lastError.message})` : ""}`);
+      throw new Error(`読取ライブラリを読み込めませんでした。ネットワーク接続を確認してください。${lastError ? ` (${lastError.message})` : ""}`);
     })().catch((error) => {
       pdfjsPromise = null;
       throw error;
@@ -1403,7 +1403,7 @@ async function processInputFiles(files) {
 
   els.importStatus.textContent = "読込中";
   els.importStatus.classList.remove("ready");
-  setImportMessage("PDF/CSVから月次残高を読み取っています。", false);
+  setImportMessage("CSVから月次残高を読み取っています。", false);
 
   try {
     const parsedSources = [];
@@ -1421,11 +1421,11 @@ async function processInputFiles(files) {
     }
 
     if (!parsedSources.length) {
-      throw new Error("PDFまたはCSVファイルを指定してください。");
+      throw new Error("CSVファイルを指定してください。");
     }
 
     els.rawTextInput.value = textPreviews.join("\n\n");
-    acceptParsedData(mergeParsedSources(parsedSources), fileList.some(isCsvFile) ? "CSV" : "PDF");
+    acceptParsedData(mergeParsedSources(parsedSources), fileList.some(isCsvFile) ? "CSV" : "取込");
   } catch (error) {
     els.importStatus.textContent = "要確認";
     els.importStatus.classList.remove("ready");

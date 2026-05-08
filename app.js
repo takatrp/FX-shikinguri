@@ -82,6 +82,9 @@ const els = {
   eReceivableDetailsBody: document.querySelector("#eReceivableDetailsBody"),
   addBillDetail: document.querySelector("#addBillDetail"),
   addEReceivableDetail: document.querySelector("#addEReceivableDetail"),
+  accountCodesConfirmed: document.querySelector("#accountCodesConfirmed"),
+  accountConfirmWarning: document.querySelector("#accountConfirmWarning"),
+  receivableDetails: document.querySelector("#receivableDetails"),
   collectionWarning: document.querySelector("#collectionWarning"),
   basisText: document.querySelector("#basisText"),
   rowsTable: document.querySelector("#rowsTable tbody"),
@@ -176,6 +179,38 @@ function setMoneyInputValue(id, value) {
 
 function getCollectionMode() {
   return document.querySelector('input[name="collectionMode"]:checked')?.value || "simple";
+}
+
+function accountCodesConfirmed() {
+  return Boolean(els.accountCodesConfirmed?.checked);
+}
+
+function updateAccountConfirmationUi(showDialog = false) {
+  const ok = accountCodesConfirmed();
+  const message = "計算・出力する前に、科目コード欄の対応科目を確認してチェックしてください。";
+  if (els.accountConfirmWarning) {
+    els.accountConfirmWarning.textContent = ok ? "" : message;
+    els.accountConfirmWarning.classList.toggle("show", !ok);
+  }
+  [els.recalculateButton, els.exportButton, els.printButton].forEach((button) => {
+    if (button) button.disabled = !ok;
+  });
+  if (!ok && showDialog) {
+    alert(message);
+  }
+  return ok;
+}
+
+function ensureAccountCodesConfirmed(showDialog = false) {
+  const ok = updateAccountConfirmationUi(showDialog);
+  if (!ok) renderAccountConfirmationPlaceholder();
+  return ok;
+}
+
+function updateCollectionModeUi() {
+  if (getCollectionMode() === "detail" && els.receivableDetails) {
+    els.receivableDetails.open = true;
+  }
 }
 
 function collectionPercentIds() {
@@ -980,6 +1015,10 @@ function dateToMonthKey(dateValue) {
 }
 
 function buildForecast() {
+  if (!ensureAccountCodesConfirmed(false)) {
+    return [];
+  }
+
   if (!state.months.length) {
     renderEmptyTable();
     return [];
@@ -1208,6 +1247,13 @@ function renderEmptyTable() {
   els.cashflowBody.innerHTML = els.emptyTableTemplate.innerHTML;
 }
 
+function renderAccountConfirmationPlaceholder() {
+  state.forecastRows = [];
+  els.cashflowHead.innerHTML = "";
+  els.cashflowBody.innerHTML = '<tr><td colspan="8" class="empty-cell">科目コードの対応科目を確認し、「対応科目を確認しました」にチェックすると資金繰り表を作成できます。</td></tr>';
+  els.basisText.textContent = "科目コードの確認後に計算できます。";
+}
+
 function renderMetrics() {
   const inputs = getInputs();
   const cash = pickSeries(parseCodes(inputs.cashCodes));
@@ -1412,6 +1458,11 @@ function sampleText() {
 }
 
 function exportCsv() {
+  if (!ensureAccountCodesConfirmed(true)) return;
+  if (!updateCollectionWarning(true)) return;
+  if (!state.forecastRows.length) {
+    buildForecast();
+  }
   if (!state.forecastRows.length) return;
   const header = ["項目", ...state.forecastRows.map((row) => row.month)];
   const lines = getForecastLines().filter((line) => !line.section).map((line) => [line.label, line.key]);
@@ -1428,6 +1479,9 @@ function exportCsv() {
 }
 
 function printCashflowReport() {
+  if (!ensureAccountCodesConfirmed(true)) {
+    return;
+  }
   if (!updateCollectionWarning(true)) {
     return;
   }
@@ -1672,6 +1726,7 @@ els.sampleButton.addEventListener("click", () => {
 });
 
 els.recalculateButton.addEventListener("click", () => {
+  if (!ensureAccountCodesConfirmed(true)) return;
   renderRows();
   renderMetrics();
   buildForecast();
@@ -1684,7 +1739,19 @@ els.addBillDetail.addEventListener("click", () => addReceivableDetail("bill"));
 els.addEReceivableDetail.addEventListener("click", () => addReceivableDetail("eReceivable"));
 
 document.querySelectorAll('input[name="collectionMode"]').forEach((input) => {
-  input.addEventListener("change", buildForecast);
+  input.addEventListener("change", () => {
+    updateCollectionModeUi();
+    buildForecast();
+  });
+});
+
+els.accountCodesConfirmed.addEventListener("change", () => {
+  updateAccountConfirmationUi(false);
+  if (accountCodesConfirmed()) {
+    buildForecast();
+  } else {
+    renderAccountConfirmationPlaceholder();
+  }
 });
 
 inputIds.forEach((id) => {
@@ -1713,6 +1780,12 @@ inputIds.forEach((id) => {
 state.billDetails.push(createReceivableDetail());
 state.eReceivableDetails.push(createReceivableDetail());
 if (!inputValue("reportDate")) document.querySelector("#reportDate").value = todayIso();
+updateAccountConfirmationUi(false);
 updateCollectionWarning(false);
+updateCollectionModeUi();
 renderReceivableDetails();
-renderEmptyTable();
+if (accountCodesConfirmed()) {
+  renderEmptyTable();
+} else {
+  renderAccountConfirmationPlaceholder();
+}

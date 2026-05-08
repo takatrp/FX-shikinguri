@@ -127,6 +127,11 @@
             借入金
             <input id="loanCodes" type="text" value="2135,2212,2213">
           </label>
+          <label class="confirm-check">
+            <input id="accountCodesConfirmed" type="checkbox">
+            <span>対応科目を確認しました</span>
+          </label>
+          <p class="gate-warning" id="accountConfirmWarning" role="alert"></p>
         </div>
 
         <div class="control-group">
@@ -181,7 +186,7 @@
               </label>
             </div>
           </div>
-          <details class="detail-inputs">
+          <details class="detail-inputs" id="receivableDetails">
             <summary>受取手形・電子記録債権の明細</summary>
             <p class="detail-note">対象月末現在の未回収明細を入力します。明細モードでは、期日の月に入金として反映します。</p>
             <div class="detail-section">

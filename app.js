@@ -68,7 +68,7 @@ const els = {
   rawTextInput: document.querySelector("#rawTextInput"),
   parseTextButton: document.querySelector("#parseTextButton"),
   sampleButton: document.querySelector("#sampleButton"),
-  exportButton: document.querySelector("#exportButton"),
+  resetButton: document.querySelector("#resetButton"),
   printButton: document.querySelector("#printButton"),
   recalculateButton: document.querySelector("#recalculateButton"),
   importStatus: document.querySelector("#importStatus"),
@@ -117,6 +117,30 @@ const inputIds = [
 ];
 
 const moneyInputIds = ["salesForecast", "fixedCosts", "loanRepayment", "openingCash"];
+
+const defaultInputValues = {
+  cashCodes: "1101,1111,1113,1114,1115",
+  arCodes: "1122",
+  billCodes: "1121",
+  eReceivableCodes: "1124",
+  loanCodes: "2135,2212,2213",
+  salesForecast: "",
+  collectCurrent: "10",
+  collectNext: "80",
+  collectAfterNext: "10",
+  collectBill: "0",
+  collectEReceivable: "0",
+  billMaturity: "2",
+  eReceivableMaturity: "2",
+  costRate: "65",
+  fixedCosts: "",
+  loanRepayment: "",
+  openingCash: "",
+  forecastMonths: "6"
+};
+
+const reportInputIds = ["companyName", "submitTo", "reportDate", "preparedBy", "reportNote"];
+const initialImportMessage = "CSVは端末内だけで処理します。読み取りに失敗した場合は、下のテキスト欄に抽出内容を残します。";
 
 const state = {
   months: [],
@@ -192,7 +216,7 @@ function updateAccountConfirmationUi(showDialog = false) {
     els.accountConfirmWarning.textContent = ok ? "" : message;
     els.accountConfirmWarning.classList.toggle("show", !ok);
   }
-  [els.recalculateButton, els.exportButton, els.printButton].forEach((button) => {
+  [els.recalculateButton, els.printButton].forEach((button) => {
     if (button) button.disabled = !ok;
   });
   if (!ok && showDialog) {
@@ -1254,6 +1278,46 @@ function renderAccountConfirmationPlaceholder() {
   els.basisText.textContent = "科目コードの確認後に計算できます。";
 }
 
+function resetTool() {
+  inputIds.forEach((id) => {
+    const input = document.querySelector(`#${id}`);
+    if (input) input.value = defaultInputValues[id] ?? "";
+  });
+  reportInputIds.forEach((id) => {
+    const input = document.querySelector(`#${id}`);
+    if (input) input.value = id === "reportDate" ? todayIso() : "";
+  });
+
+  if (els.rawTextInput) els.rawTextInput.value = "";
+  if (els.pdfInput) els.pdfInput.value = "";
+  if (els.accountCodesConfirmed) els.accountCodesConfirmed.checked = false;
+  document.querySelectorAll('input[name="collectionMode"]').forEach((input) => {
+    input.checked = input.value === "simple";
+  });
+  if (els.receivableDetails) els.receivableDetails.open = false;
+  const evidenceDetails = document.querySelector("#presetEvidenceDetails");
+  if (evidenceDetails) evidenceDetails.open = false;
+
+  state.months = [];
+  state.rows = [];
+  state.forecastRows = [];
+  state.sources = [];
+  state.presetEvidence = [];
+  state.billDetails = [createReceivableDetail()];
+  state.eReceivableDetails = [createReceivableDetail()];
+  state.manual = { otherIn: [], otherOut: [], loanRepayment: [] };
+
+  if (els.printReport) els.printReport.innerHTML = "";
+  renderRows();
+  renderMetrics();
+  renderPresetEvidence();
+  renderReceivableDetails();
+  setImportMessage(initialImportMessage, false);
+  updateAccountConfirmationUi(false);
+  updateCollectionWarning(false);
+  renderAccountConfirmationPlaceholder();
+}
+
 function renderMetrics() {
   const inputs = getInputs();
   const cash = pickSeries(parseCodes(inputs.cashCodes));
@@ -1301,8 +1365,10 @@ function acceptParsedData(parsed, sourceLabel) {
   renderMetrics();
   buildForecast();
 
-  els.importStatus.textContent = `${sourceLabel}読込`;
-  els.importStatus.classList.add("ready");
+  if (els.importStatus) {
+    els.importStatus.textContent = `${sourceLabel}読込`;
+    els.importStatus.classList.add("ready");
+  }
   const sourceText = state.sources.length
     ? `（${state.sources.map((source) => `${source.kind}: ${source.rowCount}行`).join(" / ")}）`
     : "";
@@ -1401,8 +1467,10 @@ async function processInputFiles(files) {
   const fileList = [...files].filter(Boolean);
   if (!fileList.length) return;
 
-  els.importStatus.textContent = "読込中";
-  els.importStatus.classList.remove("ready");
+  if (els.importStatus) {
+    els.importStatus.textContent = "読込中";
+    els.importStatus.classList.remove("ready");
+  }
   setImportMessage("CSVから月次残高を読み取っています。", false);
 
   try {
@@ -1427,8 +1495,10 @@ async function processInputFiles(files) {
     els.rawTextInput.value = textPreviews.join("\n\n");
     acceptParsedData(mergeParsedSources(parsedSources), fileList.some(isCsvFile) ? "CSV" : "取込");
   } catch (error) {
-    els.importStatus.textContent = "要確認";
-    els.importStatus.classList.remove("ready");
+    if (els.importStatus) {
+      els.importStatus.textContent = "要確認";
+      els.importStatus.classList.remove("ready");
+    }
     console.error(error);
     setImportMessage(error.message || "読込に失敗しました。ファイル形式を確認してください。", true);
   }
@@ -1714,8 +1784,10 @@ els.parseTextButton.addEventListener("click", () => {
   try {
     acceptParsedData(parseBalanceText(els.rawTextInput.value), "テキスト");
   } catch (error) {
-    els.importStatus.textContent = "要確認";
-    els.importStatus.classList.remove("ready");
+    if (els.importStatus) {
+      els.importStatus.textContent = "要確認";
+      els.importStatus.classList.remove("ready");
+    }
     setImportMessage(error.message, true);
   }
 });
@@ -1732,7 +1804,7 @@ els.recalculateButton.addEventListener("click", () => {
   buildForecast();
 });
 
-els.exportButton.addEventListener("click", exportCsv);
+els.resetButton.addEventListener("click", resetTool);
 els.printButton.addEventListener("click", printCashflowReport);
 
 els.addBillDetail.addEventListener("click", () => addReceivableDetail("bill"));

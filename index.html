@@ -8,19 +8,21 @@
 </head>
 <body>
   <header class="app-header">
-    <div>
-      <p class="eyebrow">Matsumoto Accounting</p>
-      <h1>FXクラウド 資金繰り表メーカー</h1>
-    </div>
-    <div class="header-actions">
-      <button class="ghost" id="sampleButton" type="button">サンプル</button>
-      <button class="primary" id="exportButton" type="button">CSV出力</button>
-      <button class="secondary" id="printButton" type="button">PDF/印刷</button>
+    <div class="app-header-inner">
+      <div>
+        <p class="eyebrow">Matsumoto Accounting</p>
+        <h1>FXクラウド 資金繰り表メーカー</h1>
+      </div>
+      <div class="header-actions">
+        <button class="ghost" id="sampleButton" type="button">サンプル</button>
+        <button class="ghost" id="resetButton" type="button">初期化</button>
+        <button class="primary" id="printButton" type="button">PDF/印刷</button>
+      </div>
     </div>
   </header>
 
   <main class="app-shell">
-    <section class="panel import-panel" aria-label="CSV読込">
+    <section class="panel import-panel" aria-label="勘定科目残高推移表読込">
       <div class="panel-head">
         <div>
           <h2>勘定科目残高推移表</h2>
@@ -28,7 +30,6 @@
         </div>
         <div class="import-actions">
           <a class="manual-button" href="./CSV出力マニュアル.pdf" target="_blank" rel="noopener">CSV出力マニュアルはこちら</a>
-          <span class="status-pill" id="importStatus">未読込</span>
         </div>
       </div>
       <label class="drop-zone" for="pdfInput">

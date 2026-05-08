@@ -1,23 +1,24 @@
 :root {
   --brand: #578899;
+  --brand-600: #4b7481;
   --brand-700: #456d77;
-  --brand-300: #7aa5b4;
   --ink: #0f172a;
   --muted: #64748b;
-  --line: #e2e8f0;
-  --paper: #f8fafc;
+  --line: #e5e7eb;
+  --line-dark: #cbd5e1;
+  --paper: #ffffff;
   --panel: #ffffff;
   --navy: var(--brand-700);
   --green: var(--brand);
   --amber: #b66b18;
   --red: #b42318;
-  --blue-soft: #f3f7fb;
-  --green-soft: rgba(87, 136, 153, 0.12);
+  --blue-soft: #eef7fa;
+  --green-soft: #eef7fa;
   --amber-soft: #fff4df;
-  --shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
-  --shadow-btn: 0 6px 18px rgba(15, 23, 42, 0.14);
-  --shadow-btn-hover: 0 10px 26px rgba(15, 23, 42, 0.18);
-  --radius: 14px;
+  --shadow: 0 6px 16px rgba(0, 0, 0, 0.06);
+  --shadow-btn: 0 10px 24px rgba(87, 136, 153, 0.3);
+  --shadow-btn-hover: 0 12px 28px rgba(87, 136, 153, 0.34);
+  --radius: 16px;
 }
 
 * {
@@ -27,7 +28,7 @@
 body {
   margin: 0;
   color: var(--ink);
-  background: var(--paper);
+  background: #fff;
   font-family: system-ui, -apple-system, "Segoe UI", "Yu Gothic UI", "Meiryo", sans-serif;
   line-height: 1.55;
   letter-spacing: 0;
@@ -41,35 +42,44 @@ textarea {
 }
 
 button {
-  border: 1px solid transparent;
+  appearance: none;
+  border: 1px solid var(--line-dark);
   border-radius: 12px;
-  min-height: 40px;
-  padding: 0 16px;
+  min-height: 36px;
+  padding: 6px 12px;
   cursor: pointer;
-  font-weight: 900;
-  box-shadow: var(--shadow-btn);
-  transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1.2;
+  box-shadow: none;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.15s ease, border-color 0.15s ease;
 }
 
 button:hover {
-  box-shadow: var(--shadow-btn-hover);
-  transform: translateY(-1px);
+  border-color: #94a3b8;
 }
 
 button.primary {
   background: var(--green);
+  border-color: var(--green);
   color: #fff;
+  box-shadow: var(--shadow-btn);
+}
+
+button.primary:hover {
+  border-color: var(--green);
+  box-shadow: var(--shadow-btn-hover);
 }
 
 button.secondary {
-  background: var(--navy);
-  color: #fff;
+  background: #fff;
+  color: var(--ink);
 }
 
 button.ghost {
   background: #fff;
-  color: var(--navy);
-  border: 1px solid var(--line);
+  color: var(--ink);
 }
 
 button:disabled {
@@ -78,18 +88,23 @@ button:disabled {
 }
 
 .app-header {
+  display: block;
+  padding: 16px;
+  background: #fff;
+}
+
+.app-header-inner {
   display: flex;
   justify-content: space-between;
   align-items: center;
   gap: 20px;
-  padding: 18px clamp(16px, 4vw, 40px);
-  background: linear-gradient(180deg, #ffffff 0%, #f3f7fb 100%);
-  border-bottom: 1px solid var(--line);
+  width: min(1120px, 100%);
+  margin: 0 auto;
 }
 
 .app-header h1 {
   margin: 2px 0 0;
-  font-size: clamp(20px, 2.8vw, 30px);
+  font-size: clamp(20px, 2.4vw, 28px);
   line-height: 1.25;
   font-weight: 900;
 }
@@ -109,9 +124,9 @@ button:disabled {
 }
 
 .app-shell {
-  width: min(1440px, 100%);
+  width: min(1120px, 100%);
   margin: 0 auto;
-  padding: 22px clamp(12px, 3vw, 32px) 44px;
+  padding: 6px 16px 44px;
 }
 
 .panel {
@@ -164,8 +179,8 @@ button:disabled {
   margin: 16px 20px 0;
   min-height: 132px;
   border: 1px dashed #9db8c3;
-  border-radius: var(--radius);
-  background: linear-gradient(180deg, #ffffff 0%, var(--blue-soft) 100%);
+  border-radius: 12px;
+  background: #eef7fa;
   cursor: pointer;
   transition: border-color 0.15s ease, background 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
 }
@@ -184,7 +199,7 @@ button:disabled {
 }
 
 .drop-title {
-  font-size: 20px;
+  font-size: 19px;
   font-weight: 900;
   color: var(--navy);
 }
@@ -192,24 +207,6 @@ button:disabled {
 .drop-sub {
   color: var(--muted);
   font-size: 13px;
-}
-
-.status-pill {
-  display: inline-grid;
-  place-items: center;
-  min-width: 82px;
-  height: 30px;
-  padding: 0 12px;
-  border-radius: 999px;
-  background: var(--amber-soft);
-  color: var(--amber);
-  font-weight: 900;
-  font-size: 12px;
-}
-
-.status-pill.ready {
-  background: var(--green-soft);
-  color: var(--green);
 }
 
 .import-actions {
@@ -226,11 +223,11 @@ button:disabled {
   justify-content: center;
   min-height: 36px;
   padding: 0 12px;
-  border: 1px solid var(--line);
+  border: 1px solid #d6e7ee;
   border-radius: 12px;
-  background: #fff;
-  color: var(--navy);
-  box-shadow: var(--shadow);
+  background: #eef7fa;
+  color: var(--brand);
+  box-shadow: none;
   font-size: 12px;
   font-weight: 900;
   text-decoration: none;
@@ -239,9 +236,8 @@ button:disabled {
 }
 
 .manual-button:hover {
-  border-color: #c9d8df;
-  box-shadow: var(--shadow-btn-hover);
-  transform: translateY(-1px);
+  border-color: var(--brand);
+  box-shadow: none;
 }
 
 .text-import {
@@ -707,7 +703,7 @@ thead th:first-child {
 }
 
 @media (max-width: 980px) {
-  .app-header {
+  .app-header-inner {
     align-items: flex-start;
     flex-direction: column;
   }

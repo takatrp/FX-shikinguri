@@ -240,6 +240,53 @@ input[type="number"] {
   margin-top: 18px;
 }
 
+.evidence-panel {
+  margin-top: 18px;
+}
+
+.evidence-panel details {
+  padding: 0;
+}
+
+.evidence-panel summary {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 20px;
+  cursor: pointer;
+  font-weight: 800;
+  color: var(--navy);
+}
+
+.evidence-panel summary small {
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.evidence-list {
+  display: grid;
+  gap: 12px;
+  padding: 0 20px 18px;
+}
+
+.evidence-item {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px;
+  background: #fbfcfe;
+}
+
+.evidence-item strong {
+  display: block;
+  margin-bottom: 4px;
+}
+
+.evidence-item p {
+  margin: 3px 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
 .metric {
   padding: 18px 20px;
   border-right: 1px solid var(--line);
@@ -395,7 +442,7 @@ thead th:first-child {
 }
 
 #rowsTable {
-  min-width: 620px;
+  min-width: 760px;
 }
 
 #rowsTable td:nth-child(1),
@@ -405,6 +452,18 @@ thead th:first-child {
 #rowsTable td:nth-child(4),
 #rowsTable th:nth-child(4) {
   text-align: left;
+}
+
+#rowsTable td:nth-child(5),
+#rowsTable th:nth-child(5),
+#rowsTable td:nth-child(6),
+#rowsTable th:nth-child(6) {
+  text-align: left;
+}
+
+.aggregate-row td {
+  background: #f8fafc;
+  font-weight: 800;
 }
 
 @media (max-width: 980px) {

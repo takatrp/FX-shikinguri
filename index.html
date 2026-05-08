@@ -23,14 +23,14 @@
       <div class="panel-head">
         <div>
           <h2>勘定科目残高推移表</h2>
-          <p>PDFまたは抽出テキストから月次残高を読み取ります。</p>
+          <p>PDFまたはB/S・P/L・CRのCSVから月次残高を読み取ります。</p>
         </div>
         <span class="status-pill" id="importStatus">未読込</span>
       </div>
       <label class="drop-zone" for="pdfInput">
-        <input id="pdfInput" type="file" accept="application/pdf">
-        <span class="drop-title">PDFを選択</span>
-        <span class="drop-sub">ここにドラッグ＆ドロップできます</span>
+        <input id="pdfInput" type="file" accept="application/pdf,.csv,text/csv" multiple>
+        <span class="drop-title">PDF / CSVを選択</span>
+        <span class="drop-sub">B/S・P/L・CRのCSVもまとめてドラッグできます</span>
       </label>
       <p class="import-message" id="importMessage">PDFは端末内だけで処理します。読み取りに失敗した場合は、下のテキスト欄に抽出内容を残します。</p>
       <details class="text-import">
@@ -59,6 +59,16 @@
       </div>
     </section>
 
+    <section class="panel evidence-panel" aria-label="プリセット根拠">
+      <details id="presetEvidenceDetails">
+        <summary>
+          <span>プリセット根拠</span>
+          <small id="evidenceSummary">PDFまたはCSV読込後に表示します</small>
+        </summary>
+        <div id="presetEvidenceList" class="evidence-list"></div>
+      </details>
+    </section>
+
     <section class="workspace-grid">
       <aside class="panel controls-panel" aria-label="前提条件">
         <div class="panel-head tight">
@@ -76,11 +86,11 @@
           </label>
           <label>
             売掛金
-            <input id="arCodes" type="text" value="1121">
+            <input id="arCodes" type="text" value="1122">
           </label>
           <label>
             受取手形
-            <input id="billCodes" type="text" value="1122">
+            <input id="billCodes" type="text" value="1121">
           </label>
           <label>
             電子記録債権
@@ -88,7 +98,7 @@
           </label>
           <label>
             借入金
-            <input id="loanCodes" type="text" value="2117,2125,2135,2136,2211,2212,2213,3212">
+            <input id="loanCodes" type="text" value="2135,2212,2213">
           </label>
         </div>
 
@@ -181,6 +191,8 @@
               <th>コード</th>
               <th>科目</th>
               <th>最新残高</th>
+              <th>資料</th>
+              <th>行区分</th>
               <th>分類</th>
             </tr>
           </thead>

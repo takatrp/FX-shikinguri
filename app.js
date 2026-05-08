@@ -22,20 +22,20 @@ const ACCOUNT_NAMES = {
   "1114": "定期預金",
   "1115": "その他預金",
   "1120": "売上債権",
-  "1121": "売掛金",
-  "1122": "受取手形",
+  "1121": "受取手形",
+  "1122": "売掛金",
   "1124": "電子記録債権",
   "2000": "負債・純資産合計",
   "2100": "流動負債",
   "2112": "買掛金",
   "2113": "支払手形",
   "2114": "電子記録債務",
-  "2117": "短期借入金",
-  "2125": "一年以内返済長期借入金",
+  "2117": "預り金",
+  "2125": "未払法人税等",
   "2200": "固定負債",
-  "2211": "長期借入金",
-  "2212": "役員借入金",
-  "2213": "金融機関借入金",
+  "2211": "社債",
+  "2212": "長期借入金",
+  "2213": "役員借入金",
   "3000": "負債合計",
   "3100": "純資産",
   "4000": "売上高合計",
@@ -43,8 +43,9 @@ const ACCOUNT_NAMES = {
   "4115": "売上値引戻り高",
   "5000": "売上原価",
   "5100": "期首棚卸高",
-  "5200": "仕入高",
+  "5200": "当期売上原価",
   "5400": "製造原価",
+  "6100": "販売費及び一般管理費計",
   "6000": "販売費及び一般管理費"
 };
 
@@ -74,6 +75,8 @@ const els = {
   cashMetric: document.querySelector("#cashMetric"),
   receivableMetric: document.querySelector("#receivableMetric"),
   loanMetric: document.querySelector("#loanMetric"),
+  evidenceSummary: document.querySelector("#evidenceSummary"),
+  presetEvidenceList: document.querySelector("#presetEvidenceList"),
   basisText: document.querySelector("#basisText"),
   rowsTable: document.querySelector("#rowsTable tbody"),
   rowCount: document.querySelector("#rowCount"),
@@ -107,6 +110,8 @@ const state = {
   months: [],
   rows: [],
   forecastRows: [],
+  sources: [],
+  presetEvidence: [],
   manual: {
     otherIn: [],
     otherOut: [],
@@ -119,6 +124,15 @@ let pdfjsPromise = null;
 function formatYen(value) {
   const amount = Math.round(Number(value) || 0);
   return amount.toLocaleString("ja-JP");
+}
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
 }
 
 function parseAmount(value) {
@@ -262,12 +276,181 @@ function parseBalanceText(rawText) {
         code: segment.code,
         name: extractLabel(segment.raw, segment.code),
         values,
-        latest: last(values, 0)
+        latest: last(values, 0),
+        statement: inferStatementKind(segment.code, extractLabel(segment.raw, segment.code)),
+        rowType: inferRowType(segment.code, extractLabel(segment.raw, segment.code)),
+        sourceName: "テキスト"
       };
     })
     .filter((row) => row.values.length >= Math.min(3, monthCount));
 
   return { months, rows: dedupeRows(rows) };
+}
+
+function decodeCsvBuffer(buffer) {
+  const utf8 = new TextDecoder("utf-8", { fatal: false }).decode(buffer);
+  if (!utf8.includes("�")) return utf8;
+  try {
+    return new TextDecoder("shift_jis", { fatal: false }).decode(buffer);
+  } catch {
+    return utf8;
+  }
+}
+
+function parseCsvText(text) {
+  const rows = [];
+  let row = [];
+  let cell = "";
+  let inQuotes = false;
+
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index];
+    const next = text[index + 1];
+    if (char === '"' && inQuotes && next === '"') {
+      cell += '"';
+      index += 1;
+    } else if (char === '"') {
+      inQuotes = !inQuotes;
+    } else if (char === "," && !inQuotes) {
+      row.push(cell);
+      cell = "";
+    } else if ((char === "\n" || char === "\r") && !inQuotes) {
+      if (char === "\r" && next === "\n") index += 1;
+      row.push(cell);
+      if (row.some((value) => value !== "")) rows.push(row);
+      row = [];
+      cell = "";
+    } else {
+      cell += char;
+    }
+  }
+
+  if (cell || row.length) {
+    row.push(cell);
+    if (row.some((value) => value !== "")) rows.push(row);
+  }
+
+  return rows;
+}
+
+function parseBalanceCsvText(rawText, sourceName = "CSV") {
+  const table = parseCsvText(rawText.replace(/^\uFEFF/, ""));
+  const headerIndex = table.findIndex((row) => row.some((cell) => cell.trim() === "勘定科目コード"));
+  if (headerIndex < 0) throw new Error(`${sourceName} に「勘定科目コード」の列が見つかりません。`);
+
+  const header = table[headerIndex].map((cell) => cell.trim());
+  const codeIndex = header.findIndex((cell) => cell === "勘定科目コード");
+  const nameIndex = header.findIndex((cell) => cell === "勘定科目名");
+  const monthColumns = header
+    .map((cell, index) => ({ cell, index }))
+    .filter(({ cell }) => /^20\d{2}\/(0?[1-9]|1[0-2])$/.test(cell))
+    .map(({ cell, index }) => ({ month: normalizeMonthCell(cell), index }));
+
+  if (codeIndex < 0 || nameIndex < 0 || monthColumns.length < 3) {
+    throw new Error(`${sourceName} の列構成を確認してください。月次列が不足しています。`);
+  }
+
+  const months = monthColumns.map((column) => column.month);
+  const rows = table.slice(headerIndex + 1)
+    .map((line) => {
+      const code = String(line[codeIndex] || "").trim();
+      const name = String(line[nameIndex] || "").trim();
+      if (!/^\d{4}$/.test(code) || !name) return null;
+      const values = monthColumns.map((column) => parseAmount(line[column.index] || 0));
+      const statement = inferStatementKind(code, name);
+      const rowType = inferRowType(code, name);
+      return {
+        code,
+        name,
+        values,
+        latest: last(values, 0),
+        statement,
+        rowType,
+        sourceName
+      };
+    })
+    .filter(Boolean);
+
+  return {
+    months,
+    rows,
+    source: {
+      name: sourceName,
+      kind: summarizeKinds(rows),
+      rowCount: rows.length
+    }
+  };
+}
+
+function normalizeMonthCell(cell) {
+  const match = String(cell).match(/^(20\d{2})\/(0?[1-9]|1[0-2])$/);
+  return match ? monthKey(Number(match[1]), Number(match[2])) : cell;
+}
+
+function inferStatementKind(code, name = "") {
+  if (/CR|ＣＲ|資金繰|資金収支|現金収支|キャッシュ|収支/.test(name)) return "CR";
+  const numericCode = Number(code);
+  if (numericCode >= 5400 && numericCode <= 5500) return "CR";
+  if (numericCode >= 4000 && numericCode < 9000) return "P/L";
+  if (numericCode >= 1000 && numericCode < 4000) return "B/S";
+  if (numericCode >= 9000) return "B/S";
+  return "その他";
+}
+
+function inferRowType(code, name = "") {
+  const aggregatePatterns = /(計|合計|小計|総利益|営業利益|経常利益|当期.*利益|税引|純売上高|負債・純資産|株主資本|当座資産|棚卸資産|流動|固定|純資産の部)/;
+  return aggregatePatterns.test(name) || ["4000", "5000", "5200", "5400", "5500", "6000", "7000", "7200", "8000", "9000"].includes(code)
+    ? "集計行"
+    : "科目残高";
+}
+
+function summarizeKinds(rows) {
+  const kinds = [...new Set(rows.map((row) => row.statement).filter(Boolean))];
+  return kinds.join("・") || "CSV";
+}
+
+function mergeParsedSources(parsedSources) {
+  const validSources = parsedSources.filter((source) => source && source.rows.length && source.months.length);
+  if (!validSources.length) return { months: [], rows: [], sources: [] };
+
+  const months = chooseMonths(validSources.map((source) => source.months));
+  const rows = validSources.flatMap((source) =>
+    source.rows.map((row) => ({
+      ...row,
+      values: alignValuesToMonths(source.months, row.values, months),
+      latest: last(alignValuesToMonths(source.months, row.values, months), 0),
+      sourceName: row.sourceName || source.source?.name || "取込データ",
+      statement: row.statement || inferStatementKind(row.code, row.name),
+      rowType: row.rowType || inferRowType(row.code, row.name)
+    }))
+  );
+
+  return {
+    months,
+    rows: dedupeRows(rows),
+    sources: uniqueSources(validSources.map((source) => source.source).filter(Boolean))
+  };
+}
+
+function chooseMonths(monthGroups) {
+  return [...monthGroups].sort((a, b) => b.length - a.length)[0] || [];
+}
+
+function alignValuesToMonths(sourceMonths, values, targetMonths) {
+  return targetMonths.map((month) => {
+    const index = sourceMonths.indexOf(month);
+    return index >= 0 ? values[index] || 0 : 0;
+  });
+}
+
+function uniqueSources(sources) {
+  const seen = new Set();
+  return sources.filter((source) => {
+    const key = `${source.kind}:${source.rowCount}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 function parseBalancePdfPages(pageItems) {
@@ -293,14 +476,19 @@ function parseBalancePdfPages(pageItems) {
     const anchors = page.monthAnchors.length >= 3 ? page.monthAnchors : bestAnchors;
     page.lines.forEach((line) => {
       const row = parsePdfAccountLine(line, anchors);
-      if (row) rows.push(row);
+      if (row) rows.push({ ...row, sourceName: `PDF ${page.pageNumber}頁` });
     });
   });
 
   return {
     months,
     rows: dedupeRows(rows).filter((row) => row.values.length >= Math.min(3, months.length)),
-    text: fallbackText
+    text: fallbackText,
+    source: {
+      name: "PDF",
+      kind: summarizeKinds(rows),
+      rowCount: rows.length
+    }
   };
 }
 
@@ -424,11 +612,14 @@ function parsePdfAccountLine(line, monthAnchors) {
 
   if (fallbackValues.length !== monthAnchors.length) return null;
 
+  const name = extractPdfAccountName(line.text, code);
   return {
     code,
-    name: extractPdfAccountName(line.text, code),
+    name,
     values: fallbackValues,
-    latest: last(fallbackValues, 0)
+    latest: last(fallbackValues, 0),
+    statement: inferStatementKind(code, name),
+    rowType: inferRowType(code, name)
   };
 }
 
@@ -469,8 +660,9 @@ function parseBalanceCellValue(text) {
 function dedupeRows(rows) {
   const byCode = new Map();
   rows.forEach((row) => {
-    const current = byCode.get(row.code);
-    if (!current || row.values.length > current.values.length) byCode.set(row.code, row);
+    const key = `${row.statement || inferStatementKind(row.code, row.name)}:${row.code}`;
+    const current = byCode.get(key);
+    if (!current || row.values.length > current.values.length) byCode.set(key, row);
   });
   return [...byCode.values()].sort((a, b) => a.code.localeCompare(b.code, "ja"));
 }
@@ -485,13 +677,18 @@ function findRows(codes) {
 }
 
 function pickSeries(codes, preferAggregate = true) {
+  return pickSeriesInfo(codes, preferAggregate).values;
+}
+
+function pickSeriesInfo(codes, preferAggregate = true) {
   const rows = findRows(codes);
-  if (!rows.length) return Array(state.months.length).fill(0);
+  if (!rows.length) return { values: Array(state.months.length).fill(0), rows: [] };
+  const orderedRows = codes.flatMap((code) => rows.filter((row) => row.code === code));
   if (preferAggregate) {
-    const exact = rows.find((row) => row.code.endsWith("00") || row.code.endsWith("01"));
-    if (exact) return alignSeries(exact.values);
+    const aggregate = orderedRows.find((row) => row.rowType === "集計行") || orderedRows[0];
+    if (aggregate) return { values: alignSeries(aggregate.values), rows: [aggregate] };
   }
-  return sumSeries(rows.map((row) => row.values));
+  return { values: sumSeries(orderedRows.map((row) => row.values)), rows: orderedRows };
 }
 
 function alignSeries(values) {
@@ -528,16 +725,30 @@ function classifyRow(row) {
 
 function getBasisFromRows() {
   const inputs = getInputs();
-  const cash = pickSeries(parseCodes(inputs.cashCodes));
-  const ar = pickSeries(parseCodes(inputs.arCodes), false);
-  const bills = pickSeries(parseCodes(inputs.billCodes), false);
-  const eReceivables = pickSeries(parseCodes(inputs.eReceivableCodes), false);
-  const loans = pickSeries(parseCodes(inputs.loanCodes), false);
-  const sales = pickSeries(["4111", "4000"]);
-  const costs = pickSeries(["5000", "5200", "5400"]);
-  const fixed = pickSeries(["6000"]);
+  const cashInfo = pickSeriesInfo(parseCodes(inputs.cashCodes));
+  const arInfo = pickSeriesInfo(parseCodes(inputs.arCodes), false);
+  const billsInfo = pickSeriesInfo(parseCodes(inputs.billCodes), false);
+  const eReceivablesInfo = pickSeriesInfo(parseCodes(inputs.eReceivableCodes), false);
+  const loansInfo = pickSeriesInfo(parseCodes(inputs.loanCodes), false);
+  const salesInfo = pickSeriesInfo(["4000", "4111"]);
+  const costsInfo = pickSeriesInfo(["5200", "5100", "5500", "5400"]);
+  const fixedInfo = pickSeriesInfo(["6100", "6000"]);
 
-  return { cash, ar, bills, eReceivables, loans, sales, costs, fixed };
+  return {
+    cash: cashInfo.values,
+    ar: arInfo.values,
+    bills: billsInfo.values,
+    eReceivables: eReceivablesInfo.values,
+    loans: loansInfo.values,
+    sales: salesInfo.values,
+    costs: costsInfo.values,
+    fixed: fixedInfo.values,
+    cashInfo,
+    salesInfo,
+    costsInfo,
+    fixedInfo,
+    loansInfo
+  };
 }
 
 function calculatePdfDefaults(basis) {
@@ -576,6 +787,7 @@ function recentFlowAverage(values) {
 
 function applyPdfDefaults(basis, force = false) {
   const defaults = calculatePdfDefaults(basis);
+  state.presetEvidence = buildPresetEvidence(basis, defaults);
   setInputIfEmpty("openingCash", defaults.openingCash, force);
   setInputIfEmpty("salesForecast", defaults.salesForecast, force);
   setInputIfEmpty("fixedCosts", defaults.fixedCosts, force);
@@ -583,6 +795,102 @@ function applyPdfDefaults(basis, force = false) {
   if ((force || !document.querySelector("#costRate").value) && Number.isFinite(defaults.costRate) && defaults.costRate > 0) {
     document.querySelector("#costRate").value = Math.min(Math.round(defaults.costRate), 150);
   }
+  renderPresetEvidence();
+}
+
+function buildPresetEvidence(basis, defaults) {
+  const lastMonth = last(state.months, "-");
+  const recentMonths = state.months.slice(-3);
+  const evidence = [];
+  if (Number.isFinite(defaults.openingCash)) {
+    evidence.push({
+      label: "開始資金",
+      value: defaults.openingCash,
+      method: `最終月 ${lastMonth} の現預金残高`,
+      source: describeSourceRows(basis.cashInfo.rows),
+      values: [{ month: lastMonth, value: defaults.openingCash }]
+    });
+  }
+  if (Number.isFinite(defaults.salesForecast)) {
+    evidence.push({
+      label: "月商見込",
+      value: defaults.salesForecast,
+      method: "売上の直近3か月平均",
+      source: describeSourceRows(basis.salesInfo.rows),
+      values: recentValuePairs(basis.sales, recentMonths)
+    });
+  }
+  if (Number.isFinite(defaults.fixedCosts)) {
+    evidence.push({
+      label: "固定費/月",
+      value: defaults.fixedCosts,
+      method: "販売費及び一般管理費の直近3か月平均",
+      source: describeSourceRows(basis.fixedInfo.rows),
+      values: recentValuePairs(basis.fixed, recentMonths)
+    });
+  }
+  if (Number.isFinite(defaults.loanRepayment)) {
+    evidence.push({
+      label: "借入返済/月",
+      value: defaults.loanRepayment,
+      method: "借入金残高の減少額の直近3か月平均",
+      source: describeSourceRows(basis.loansInfo.rows),
+      values: recentLoanDecreasePairs(basis.loans, recentMonths)
+    });
+  }
+  if (Number.isFinite(defaults.costRate) && defaults.costRate > 0) {
+    evidence.push({
+      label: "仕入・外注率",
+      value: defaults.costRate,
+      suffix: "%",
+      method: "売上原価 ÷ 売上",
+      source: `${describeSourceRows(basis.costsInfo.rows)} / ${describeSourceRows(basis.salesInfo.rows)}`,
+      values: [
+        { month: "売上原価平均", value: average(basis.costs.slice(-3)) },
+        { month: "売上平均", value: average(basis.sales.slice(-3)) }
+      ]
+    });
+  }
+  return evidence;
+}
+
+function describeSourceRows(rows) {
+  if (!rows.length) return "該当科目なし";
+  return rows.map((row) => `${row.statement} ${row.code} ${row.name}（${row.sourceName || "取込データ"}）`).join(" + ");
+}
+
+function recentValuePairs(values, months) {
+  return months.map((month, index) => ({
+    month,
+    value: values[values.length - months.length + index] || 0
+  }));
+}
+
+function recentLoanDecreasePairs(values, months) {
+  const decreases = values.slice(1).map((value, index) => Math.max(0, values[index] - value));
+  const recent = decreases.slice(-3);
+  return months.slice(-recent.length).map((month, index) => ({ month, value: recent[index] || 0 }));
+}
+
+function renderPresetEvidence() {
+  if (!state.presetEvidence.length) {
+    els.evidenceSummary.textContent = "根拠に使える読取値がありません";
+    els.presetEvidenceList.innerHTML = "";
+    return;
+  }
+  els.evidenceSummary.textContent = `${state.presetEvidence.length}項目を自動設定`;
+  els.presetEvidenceList.innerHTML = state.presetEvidence.map((item) => {
+    const valueText = item.suffix === "%" ? `${formatYen(item.value)}%` : `${formatYen(item.value)}円`;
+    const valueLines = item.values
+      .map((entry) => `${entry.month}: ${formatYen(entry.value)}${item.suffix === "%" ? "" : "円"}`)
+      .join(" / ");
+    return `<div class="evidence-item">
+      <strong>${escapeHtml(item.label)}: ${escapeHtml(valueText)}</strong>
+      <p>根拠: ${escapeHtml(item.method)}</p>
+      <p>参照: ${escapeHtml(item.source)}</p>
+      <p>値: ${escapeHtml(valueLines)}</p>
+    </div>`;
+  }).join("");
 }
 
 function setInputIfEmpty(id, value, force = false) {
@@ -761,11 +1069,13 @@ function renderRows() {
   els.rowCount.textContent = `${state.rows.length}件`;
   els.rowsTable.innerHTML = state.rows
     .map(
-      (row) => `<tr>
-        <td>${row.code}</td>
-        <td>${row.name}</td>
+      (row) => `<tr class="${row.rowType === "集計行" ? "aggregate-row" : ""}">
+        <td>${escapeHtml(row.code)}</td>
+        <td>${escapeHtml(row.name)}</td>
         <td>${formatYen(row.latest)}</td>
-        <td>${classifyRow(row)}</td>
+        <td>${escapeHtml(row.statement || "-")}</td>
+        <td>${escapeHtml(row.rowType || inferRowType(row.code, row.name))}</td>
+        <td>${escapeHtml(classifyRow(row))}</td>
       </tr>`
     )
     .join("");
@@ -780,6 +1090,7 @@ function acceptParsedData(parsed, sourceLabel) {
 
   state.months = parsed.months;
   state.rows = parsed.rows;
+  state.sources = parsed.sources || (parsed.source ? [parsed.source] : []);
   state.manual = { otherIn: [], otherOut: [], loanRepayment: [] };
 
   applyPdfDefaults(getBasisFromRows(), true);
@@ -789,7 +1100,10 @@ function acceptParsedData(parsed, sourceLabel) {
 
   els.importStatus.textContent = `${sourceLabel}読込`;
   els.importStatus.classList.add("ready");
-  setImportMessage(`${parsed.months.length}か月、${parsed.rows.length}科目を読み取りました。`, false);
+  const sourceText = state.sources.length
+    ? `（${state.sources.map((source) => `${source.kind}: ${source.rowCount}行`).join(" / ")}）`
+    : "";
+  setImportMessage(`${parsed.months.length}か月、${parsed.rows.length}科目を読み取りました。${sourceText}`, false);
 }
 
 async function loadPdfJs() {
@@ -880,35 +1194,57 @@ function setImportMessage(message, isError = false) {
   els.importMessage.classList.toggle("error", isError);
 }
 
-async function processPdfFile(file) {
-  if (!file) return;
-  if (file.type && file.type !== "application/pdf") {
-    setImportMessage("PDFファイルを指定してください。", true);
-    return;
-  }
+async function processInputFiles(files) {
+  const fileList = [...files].filter(Boolean);
+  if (!fileList.length) return;
 
   els.importStatus.textContent = "読込中";
   els.importStatus.classList.remove("ready");
-  setImportMessage("PDFから文字と月次残高を読み取っています。", false);
+  setImportMessage("PDF/CSVから月次残高を読み取っています。", false);
 
   try {
-    const result = await extractPdfData(file);
-    els.rawTextInput.value = result.text;
-    acceptParsedData(result.parsed, "PDF");
+    const parsedSources = [];
+    const textPreviews = [];
+    for (const file of fileList) {
+      if (isPdfFile(file)) {
+        const result = await extractPdfData(file);
+        textPreviews.push(`--- ${file.name} ---\n${result.text}`);
+        parsedSources.push({ ...result.parsed, source: { ...(result.parsed.source || {}), name: file.name } });
+      } else if (isCsvFile(file)) {
+        const text = decodeCsvBuffer(await file.arrayBuffer());
+        textPreviews.push(`--- ${file.name} ---\n${text}`);
+        parsedSources.push(parseBalanceCsvText(text, file.name));
+      }
+    }
+
+    if (!parsedSources.length) {
+      throw new Error("PDFまたはCSVファイルを指定してください。");
+    }
+
+    els.rawTextInput.value = textPreviews.join("\n\n");
+    acceptParsedData(mergeParsedSources(parsedSources), fileList.some(isCsvFile) ? "CSV" : "PDF");
   } catch (error) {
     els.importStatus.textContent = "要確認";
     els.importStatus.classList.remove("ready");
     console.error(error);
-    setImportMessage(error.message || "PDF読込に失敗しました。テキスト読込を使ってください。", true);
+    setImportMessage(error.message || "読込に失敗しました。ファイル形式を確認してください。", true);
   }
+}
+
+function isPdfFile(file) {
+  return file.type === "application/pdf" || /\.pdf$/i.test(file.name);
+}
+
+function isCsvFile(file) {
+  return file.type === "text/csv" || /\.csv$/i.test(file.name);
 }
 
 function sampleText() {
   const months = ["2025/07", "2025/08", "2025/09", "2025/10", "2025/11", "2025/12", "2026/01", "2026/02", "2026/03", "2026/04", "2026/05"];
   const rows = [
     ["1101", "現金及び預金", [5800000, 6420000, 6100000, 7200000, 6650000, 7900000, 7600000, 8120000, 7350000, 6900000, 7450000]],
-    ["1121", "売掛金", [9200000, 8700000, 9600000, 10400000, 10100000, 9900000, 11200000, 10800000, 11600000, 12100000, 11800000]],
-    ["1122", "受取手形", [2200000, 2100000, 2400000, 2500000, 2300000, 2600000, 2500000, 2400000, 2300000, 2200000, 2100000]],
+    ["1121", "受取手形", [2200000, 2100000, 2400000, 2500000, 2300000, 2600000, 2500000, 2400000, 2300000, 2200000, 2100000]],
+    ["1122", "売掛金", [9200000, 8700000, 9600000, 10400000, 10100000, 9900000, 11200000, 10800000, 11600000, 12100000, 11800000]],
     ["1124", "電子記録債権", [1400000, 1500000, 1450000, 1600000, 1580000, 1700000, 1650000, 1800000, 1750000, 1680000, 1720000]],
     ["2211", "長期借入金", [9800000, 9600000, 9400000, 9200000, 9000000, 8800000, 8600000, 8400000, 8200000, 8000000, 7800000]],
     ["4111", "売上高", [9800000, 9400000, 10100000, 10700000, 9900000, 11500000, 10300000, 10900000, 11100000, 11800000, 11200000]],
@@ -948,7 +1284,7 @@ function exportCsv() {
 }
 
 els.pdfInput.addEventListener("change", async (event) => {
-  await processPdfFile(event.target.files[0]);
+  await processInputFiles(event.target.files);
 });
 
 ["dragenter", "dragover"].forEach((eventName) => {
@@ -966,8 +1302,7 @@ els.pdfInput.addEventListener("change", async (event) => {
 });
 
 els.dropZone.addEventListener("drop", async (event) => {
-  const file = event.dataTransfer.files[0];
-  await processPdfFile(file);
+  await processInputFiles(event.dataTransfer.files);
 });
 
 els.parseTextButton.addEventListener("click", () => {

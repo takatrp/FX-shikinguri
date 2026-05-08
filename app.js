@@ -101,6 +101,8 @@ const inputIds = [
   "forecastMonths"
 ];
 
+const moneyInputIds = ["salesForecast", "fixedCosts", "loanRepayment", "openingCash"];
+
 const state = {
   months: [],
   rows: [],
@@ -123,6 +125,24 @@ function parseAmount(value) {
   if (value == null || value === "") return 0;
   const text = String(value).replace(/[,\s円]/g, "").replace(/△/g, "-").replace(/▲/g, "-");
   return Number(text) || 0;
+}
+
+function formatMoneyInput(input) {
+  const hadMinus = /^-/.test(String(input.value).trim());
+  const digits = String(input.value).replace(/[^\d]/g, "");
+  if (!digits) {
+    input.value = "";
+    return 0;
+  }
+  const value = Number(`${hadMinus ? "-" : ""}${digits}`);
+  input.value = formatYen(value);
+  return value;
+}
+
+function setMoneyInputValue(id, value) {
+  const input = document.querySelector(`#${id}`);
+  if (!input || !Number.isFinite(value)) return;
+  input.value = formatYen(value);
 }
 
 function average(values) {
@@ -212,7 +232,7 @@ function extractLabel(segment, code) {
 
 function extractAmounts(segment, monthCount) {
   const spaced = segment
-    .replace(/(\d{1,3}\.\d)\s*(\d{1,3},\d{3})/g, "$1 $2")
+    .replace(/([△▲-]?\d{1,4}\.\d)\s*(\d{1,3},\d{3}(?:,\d{3})*)/g, "$1 $2")
     .replace(/(\d{1,3},\d{3})(\d{1,3}\.\d)/g, "$1 $2");
   const tokens = [...spaced.matchAll(/[△▲-]?\d{1,3}(?:,\d{3})+/g)].map((match) => parseAmount(match[0]));
   if (tokens.length <= monthCount) return tokens;
@@ -248,6 +268,202 @@ function parseBalanceText(rawText) {
     .filter((row) => row.values.length >= Math.min(3, monthCount));
 
   return { months, rows: dedupeRows(rows) };
+}
+
+function parseBalancePdfPages(pageItems) {
+  const pageModels = pageItems.map((items, index) => {
+    const lines = groupPdfLines(items, index + 1);
+    return {
+      pageNumber: index + 1,
+      lines,
+      monthAnchors: extractMonthAnchorsFromLines(lines),
+      text: lines.map((line) => line.text).join("\n")
+    };
+  });
+  const fallbackText = pageModels.map((page) => page.text).join("\n");
+  const bestAnchors = chooseBestMonthAnchors(pageModels.map((page) => page.monthAnchors));
+
+  if (bestAnchors.length < 3) {
+    return { months: [], rows: [], text: fallbackText };
+  }
+
+  const months = bestAnchors.map((anchor) => anchor.month);
+  const rows = [];
+  pageModels.forEach((page) => {
+    const anchors = page.monthAnchors.length >= 3 ? page.monthAnchors : bestAnchors;
+    page.lines.forEach((line) => {
+      const row = parsePdfAccountLine(line, anchors);
+      if (row) rows.push(row);
+    });
+  });
+
+  return {
+    months,
+    rows: dedupeRows(rows).filter((row) => row.values.length >= Math.min(3, months.length)),
+    text: fallbackText
+  };
+}
+
+function groupPdfLines(items, pageNumber) {
+  const normalized = items
+    .filter((item) => item && typeof item.str === "string" && item.str.trim())
+    .map((item) => {
+      const x = item.transform[4];
+      const y = item.transform[5];
+      const width = item.width || Math.max(item.str.length * 4, 1);
+      return {
+        str: item.str,
+        x,
+        y,
+        x2: x + width,
+        width,
+        pageNumber
+      };
+    })
+    .sort((a, b) => {
+      if (Math.abs(b.y - a.y) > 2) return b.y - a.y;
+      return a.x - b.x;
+    });
+
+  const lines = [];
+  normalized.forEach((item) => {
+    let line = lines.find((entry) => Math.abs(entry.y - item.y) <= 2.5);
+    if (!line) {
+      line = { pageNumber, y: item.y, items: [] };
+      lines.push(line);
+    }
+    line.items.push(item);
+  });
+
+  return lines.map((line) => {
+    const ordered = line.items.sort((a, b) => a.x - b.x);
+    return {
+      ...line,
+      items: ordered,
+      text: buildPdfLineText(ordered)
+    };
+  });
+}
+
+function buildPdfLineText(items) {
+  return items.reduce((text, item, index) => {
+    const prev = items[index - 1];
+    const gap = prev ? item.x - prev.x2 : 0;
+    const spacer = gap > 3 ? " " : "";
+    return `${text}${spacer}${item.str}`;
+  }, "");
+}
+
+function chunkPdfLine(items, gapLimit = 5) {
+  const chunks = [];
+  items.forEach((item) => {
+    const prev = chunks[chunks.length - 1];
+    if (!prev || item.x - prev.x2 > gapLimit) {
+      chunks.push({
+        text: item.str,
+        x: item.x,
+        x2: item.x2
+      });
+    } else {
+      prev.text += item.str;
+      prev.x2 = Math.max(prev.x2, item.x2);
+    }
+  });
+  return chunks;
+}
+
+function extractMonthAnchorsFromLines(lines) {
+  let best = [];
+  lines.forEach((line) => {
+    const anchors = [];
+    chunkPdfLine(line.items, 18).forEach((chunk) => {
+      const compact = chunk.text.replace(/\s+/g, "");
+      const matches = [...compact.matchAll(/(20\d{2})(?:[\/年.-]?)(0?[1-9]|1[0-2])月?/g)];
+      matches.forEach((match) => {
+        const ratio = compact.length ? match.index / compact.length : 0.5;
+        anchors.push({
+          month: monthKey(Number(match[1]), Number(match[2])),
+          x: chunk.x + (chunk.x2 - chunk.x) * ratio + (chunk.x2 - chunk.x) / Math.max(matches.length * 2, 2)
+        });
+      });
+    });
+    const unique = dedupeMonthAnchors(anchors);
+    if (unique.length > best.length) best = unique;
+  });
+  return best.sort((a, b) => a.x - b.x);
+}
+
+function dedupeMonthAnchors(anchors) {
+  const byMonth = new Map();
+  anchors.forEach((anchor) => {
+    if (!byMonth.has(anchor.month)) byMonth.set(anchor.month, anchor);
+  });
+  return [...byMonth.values()].sort((a, b) => a.x - b.x);
+}
+
+function chooseBestMonthAnchors(anchorGroups) {
+  const groups = anchorGroups
+    .map(dedupeMonthAnchors)
+    .filter((anchors) => anchors.length >= 3)
+    .sort((a, b) => b.length - a.length);
+  return groups[0] || [];
+}
+
+function parsePdfAccountLine(line, monthAnchors) {
+  const codeMatch = line.text.match(/\((?:△|▲)?\s*(\d{4})\)/);
+  if (!codeMatch) return null;
+  const code = codeMatch[1];
+  const chunks = chunkPdfLine(line.items, 4);
+  const codeChunk = chunks.find((chunk) => chunk.text.includes(code));
+  const codeX = codeChunk ? codeChunk.x2 : 0;
+  const values = extractValuesByMonthColumns(chunks, monthAnchors, codeX);
+  const numericChunks = chunks.filter((chunk) => chunk.x2 > codeX && /\d/.test(chunk.text));
+  const fallbackValues = numericChunks.length >= monthAnchors.length && values.every((value) => Number.isFinite(value))
+    ? values
+    : extractAmounts(line.text, monthAnchors.length);
+
+  if (fallbackValues.length !== monthAnchors.length) return null;
+
+  return {
+    code,
+    name: extractPdfAccountName(line.text, code),
+    values: fallbackValues,
+    latest: last(fallbackValues, 0)
+  };
+}
+
+function extractPdfAccountName(text, code) {
+  const afterCode = text.replace(new RegExp(`^.*?\\(${code}\\)`), "");
+  const beforeValue = afterCode.split(/[△▲-]?\d{1,4}\.\d|[△▲-]?\d{1,3}(?:,\d{3})+/)[0] || "";
+  const cleaned = beforeValue.replace(/[0-9.,%()\/:*-]/g, "").replace(/\s+/g, " ").trim();
+  return ACCOUNT_NAMES[code] || cleaned || `科目 ${code}`;
+}
+
+function extractValuesByMonthColumns(chunks, monthAnchors, codeX) {
+  return monthAnchors.map((anchor, index) => {
+    const prev = monthAnchors[index - 1];
+    const next = monthAnchors[index + 1];
+    const left = prev ? (prev.x + anchor.x) / 2 : anchor.x - ((next ? next.x - anchor.x : 48) / 2);
+    const right = next ? (anchor.x + next.x) / 2 : anchor.x + ((prev ? anchor.x - prev.x : 48) / 2);
+    const cellText = chunks
+      .filter((chunk) => chunk.x2 > codeX && chunk.x < right && chunk.x2 > left)
+      .map((chunk) => chunk.text)
+      .join(" ");
+    return parseBalanceCellValue(cellText);
+  });
+}
+
+function parseBalanceCellValue(text) {
+  const normalized = String(text || "")
+    .replace(/([△▲-]?\d{1,4}\.\d)\s*(\d{1,3},\d{3}(?:,\d{3})*)/g, "$1 $2")
+    .replace(/[−－]/g, "-");
+  const amountMatches = [...normalized.matchAll(/[△▲-]?\d{1,3}(?:,\d{3})+/g)];
+  if (amountMatches.length) return parseAmount(amountMatches[amountMatches.length - 1][0]);
+
+  const withoutRates = normalized.replace(/[△▲-]?\d+\.\d+/g, " ");
+  const integerMatches = [...withoutRates.matchAll(/[△▲-]?\d+/g)];
+  if (!integerMatches.length) return NaN;
+  return parseAmount(integerMatches[integerMatches.length - 1][0]);
 }
 
 function dedupeRows(rows) {
@@ -310,7 +526,7 @@ function classifyRow(row) {
   return CATEGORY_LABELS.other;
 }
 
-function seedAssumptions() {
+function getBasisFromRows() {
   const inputs = getInputs();
   const cash = pickSeries(parseCodes(inputs.cashCodes));
   const ar = pickSeries(parseCodes(inputs.arCodes), false);
@@ -321,26 +537,67 @@ function seedAssumptions() {
   const costs = pickSeries(["5000", "5200", "5400"]);
   const fixed = pickSeries(["6000"]);
 
-  const latestCash = last(cash);
-  const recentSales = average(sales.slice(-3));
-  const recentCosts = average(costs.slice(-3));
-  const recentFixed = average(fixed.slice(-3));
-  const costRate = recentSales > 0 && recentCosts > 0 ? Math.round((recentCosts / recentSales) * 100) : Number(inputs.costRate);
-  const recentLoanRepayments = loans.slice(1).map((value, index) => Math.max(0, loans[index] - value));
-  const loanRepayment = average(recentLoanRepayments.slice(-3));
-
-  setInputIfEmpty("openingCash", latestCash);
-  setInputIfEmpty("salesForecast", recentSales);
-  setInputIfEmpty("fixedCosts", recentFixed);
-  setInputIfEmpty("loanRepayment", loanRepayment);
-  if (Number.isFinite(costRate) && costRate > 0) document.querySelector("#costRate").value = Math.min(Math.round(costRate), 150);
-
-  return { cash, ar, bills, eReceivables, loans, sales };
+  return { cash, ar, bills, eReceivables, loans, sales, costs, fixed };
 }
 
-function setInputIfEmpty(id, value) {
+function calculatePdfDefaults(basis) {
+  const latestCash = seriesHasData(basis.cash) ? last(basis.cash) : NaN;
+  const recentSales = seriesHasData(basis.sales) ? recentFlowAverage(basis.sales) : NaN;
+  const recentCosts = seriesHasData(basis.costs) ? recentFlowAverage(basis.costs) : NaN;
+  const recentFixed = seriesHasData(basis.fixed) ? recentFlowAverage(basis.fixed) : NaN;
+  const costRate = recentSales > 0 && recentCosts > 0 ? Math.round((recentCosts / recentSales) * 100) : Number(document.querySelector("#costRate").value || 0);
+  const recentLoanRepayments = basis.loans.slice(1).map((value, index) => Math.max(0, basis.loans[index] - value));
+  const loanRepayment = recentLoanRepayments.some((value) => value > 0) ? average(recentLoanRepayments.slice(-3)) : NaN;
+
+  return {
+    openingCash: latestCash,
+    salesForecast: recentSales,
+    fixedCosts: recentFixed,
+    loanRepayment,
+    costRate
+  };
+}
+
+function seriesHasData(values) {
+  return values.some((value) => Number.isFinite(value) && value !== 0);
+}
+
+function recentFlowAverage(values) {
+  const nums = values.filter((value) => Number.isFinite(value));
+  if (nums.length < 2) return last(nums, NaN);
+  const diffs = nums.slice(1).map((value, index) => value - nums[index]);
+  const nonDecreasingRatio = diffs.filter((value) => value >= 0).length / diffs.length;
+  const recentDiffs = diffs.slice(-3).filter((value) => value >= 0);
+  if (nonDecreasingRatio >= 0.75 && recentDiffs.length) {
+    return average(recentDiffs);
+  }
+  return average(nums.slice(-3));
+}
+
+function applyPdfDefaults(basis, force = false) {
+  const defaults = calculatePdfDefaults(basis);
+  setInputIfEmpty("openingCash", defaults.openingCash, force);
+  setInputIfEmpty("salesForecast", defaults.salesForecast, force);
+  setInputIfEmpty("fixedCosts", defaults.fixedCosts, force);
+  setInputIfEmpty("loanRepayment", defaults.loanRepayment, force);
+  if ((force || !document.querySelector("#costRate").value) && Number.isFinite(defaults.costRate) && defaults.costRate > 0) {
+    document.querySelector("#costRate").value = Math.min(Math.round(defaults.costRate), 150);
+  }
+}
+
+function setInputIfEmpty(id, value, force = false) {
   const input = document.querySelector(`#${id}`);
-  if (!input.value && Number.isFinite(value)) input.value = Math.round(value);
+  if (force && moneyInputIds.includes(id) && !Number.isFinite(value)) {
+    input.value = "";
+    return;
+  }
+  if ((!input.value || force) && Number.isFinite(value)) {
+    if (moneyInputIds.includes(id)) {
+      setMoneyInputValue(id, Math.round(value));
+    } else {
+      input.value = Math.round(value);
+    }
+  }
 }
 
 function buildForecast() {
@@ -349,8 +606,9 @@ function buildForecast() {
     return [];
   }
 
+  const basis = getBasisFromRows();
+  applyPdfDefaults(basis, false);
   const inputs = getInputs();
-  const basis = seedAssumptions();
   const months = Array.from({ length: Number(inputs.forecastMonths) || 6 }, (_, index) => nextMonth(last(state.months), index + 1));
   const salesForecast = parseAmount(document.querySelector("#salesForecast").value);
   const costRate = Number(document.querySelector("#costRate").value || 0) / 100;
@@ -458,10 +716,12 @@ function renderForecast(rows) {
     .join("");
 
   document.querySelectorAll("[data-manual-key]").forEach((input) => {
-    input.addEventListener("change", () => {
+    input.addEventListener("input", () => {
       const key = input.dataset.manualKey;
       const index = Number(input.dataset.index);
-      state.manual[key][index] = parseAmount(input.value);
+      state.manual[key][index] = formatMoneyInput(input);
+    });
+    input.addEventListener("change", () => {
       buildForecast();
     });
   });
@@ -472,7 +732,7 @@ function renderForecast(rows) {
 function renderForecastCell(line, row, index) {
   const value = row[line.key] || 0;
   if (line.editable) {
-    return `<td class="editable-cell"><input type="number" step="10000" value="${Math.round(value)}" data-manual-key="${line.key}" data-index="${index}"></td>`;
+    return `<td class="editable-cell"><input class="money-input" type="text" inputmode="numeric" value="${formatYen(value)}" data-manual-key="${line.key}" data-index="${index}"></td>`;
   }
   const className = value < 0 ? "negative" : "";
   return `<td class="${className}">${formatYen(value)}</td>`;
@@ -522,6 +782,7 @@ function acceptParsedData(parsed, sourceLabel) {
   state.rows = parsed.rows;
   state.manual = { otherIn: [], otherOut: [], loanRepayment: [] };
 
+  applyPdfDefaults(getBasisFromRows(), true);
   renderRows();
   renderMetrics();
   buildForecast();
@@ -553,7 +814,7 @@ async function loadPdfJs() {
   return pdfjsPromise;
 }
 
-async function extractPdfText(file) {
+async function extractPdfData(file) {
   const { pdfjs, source } = await loadPdfJs();
   const buffer = await file.arrayBuffer();
   const pdf = await pdfjs.getDocument({
@@ -564,14 +825,21 @@ async function extractPdfText(file) {
     useSystemFonts: true
   }).promise;
   const pages = [];
+  const pageItems = [];
 
   for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
     const page = await pdf.getPage(pageNumber);
     const content = await page.getTextContent({ includeMarkedContent: false });
+    pageItems.push(content.items);
     pages.push(textItemsToLines(content.items));
   }
 
-  return pages.join("\n");
+  const text = pages.join("\n");
+  const parsed = parseBalancePdfPages(pageItems);
+  return {
+    text: parsed.text || text,
+    parsed
+  };
 }
 
 function textItemsToLines(items) {
@@ -624,9 +892,9 @@ async function processPdfFile(file) {
   setImportMessage("PDFから文字と月次残高を読み取っています。", false);
 
   try {
-    const text = await extractPdfText(file);
-    els.rawTextInput.value = text;
-    acceptParsedData(parseBalanceText(text), "PDF");
+    const result = await extractPdfData(file);
+    els.rawTextInput.value = result.text;
+    acceptParsedData(result.parsed, "PDF");
   } catch (error) {
     els.importStatus.textContent = "要確認";
     els.importStatus.classList.remove("ready");
@@ -726,7 +994,14 @@ els.recalculateButton.addEventListener("click", () => {
 els.exportButton.addEventListener("click", exportCsv);
 
 inputIds.forEach((id) => {
-  document.querySelector(`#${id}`).addEventListener("change", () => {
+  const input = document.querySelector(`#${id}`);
+  if (moneyInputIds.includes(id)) {
+    input.addEventListener("input", () => {
+      formatMoneyInput(input);
+      buildForecast();
+    });
+  }
+  input.addEventListener("change", () => {
     renderRows();
     renderMetrics();
     buildForecast();

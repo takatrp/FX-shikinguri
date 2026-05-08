@@ -229,6 +229,11 @@ input[type="number"] {
   padding: 8px 10px;
 }
 
+.money-input,
+.editable-cell input {
+  font-variant-numeric: tabular-nums;
+}
+
 .metrics-panel {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));

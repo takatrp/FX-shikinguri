@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>FXクラウド 資金繰り表メーカー</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="app-header">
+    <div>
+      <p class="eyebrow">Matsumoto Accounting</p>
+      <h1>FXクラウド 資金繰り表メーカー</h1>
+    </div>
+    <div class="header-actions">
+      <button class="ghost" id="sampleButton" type="button">サンプル</button>
+      <button class="primary" id="exportButton" type="button">CSV出力</button>
+    </div>
+  </header>
+
+  <main class="app-shell">
+    <section class="panel import-panel" aria-label="PDF読込">
+      <div class="panel-head">
+        <div>
+          <h2>勘定科目残高推移表</h2>
+          <p>PDFまたは抽出テキストから月次残高を読み取ります。</p>
+        </div>
+        <span class="status-pill" id="importStatus">未読込</span>
+      </div>
+      <label class="drop-zone" for="pdfInput">
+        <input id="pdfInput" type="file" accept="application/pdf">
+        <span class="drop-title">PDFを選択</span>
+        <span class="drop-sub">FXクラウドシリーズの勘定科目残高推移表</span>
+      </label>
+      <details class="text-import">
+        <summary>テキストで読み込む</summary>
+        <textarea id="rawTextInput" rows="7" placeholder="PDFからコピーしたテキストを貼り付け"></textarea>
+        <button class="secondary" id="parseTextButton" type="button">読み取り</button>
+      </details>
+    </section>
+
+    <section class="panel metrics-panel" aria-label="読取結果">
+      <div class="metric">
+        <span>対象月</span>
+        <strong id="monthMetric">-</strong>
+      </div>
+      <div class="metric">
+        <span>月末資金</span>
+        <strong id="cashMetric">-</strong>
+      </div>
+      <div class="metric">
+        <span>売上債権</span>
+        <strong id="receivableMetric">-</strong>
+      </div>
+      <div class="metric">
+        <span>借入金</span>
+        <strong id="loanMetric">-</strong>
+      </div>
+    </section>
+
+    <section class="workspace-grid">
+      <aside class="panel controls-panel" aria-label="前提条件">
+        <div class="panel-head tight">
+          <div>
+            <h2>前提条件</h2>
+            <p>PDFから取れない先行情報だけ調整します。</p>
+          </div>
+        </div>
+
+        <div class="control-group">
+          <h3>科目コード</h3>
+          <label>
+            現預金
+            <input id="cashCodes" type="text" value="1101,1111,1113,1114,1115">
+          </label>
+          <label>
+            売掛金
+            <input id="arCodes" type="text" value="1121">
+          </label>
+          <label>
+            受取手形
+            <input id="billCodes" type="text" value="1122">
+          </label>
+          <label>
+            電子記録債権
+            <input id="eReceivableCodes" type="text" value="1124">
+          </label>
+          <label>
+            借入金
+            <input id="loanCodes" type="text" value="2117,2125,2135,2136,2211,2212,2213,3212">
+          </label>
+        </div>
+
+        <div class="control-group">
+          <h3>入金</h3>
+          <label>
+            月商見込
+            <input id="salesForecast" type="number" min="0" step="10000">
+          </label>
+          <div class="split-fields">
+            <label>
+              当月入金%
+              <input id="collectCurrent" type="number" min="0" max="100" step="5" value="10">
+            </label>
+            <label>
+              翌月入金%
+              <input id="collectNext" type="number" min="0" max="100" step="5" value="80">
+            </label>
+            <label>
+              翌々月%
+              <input id="collectAfterNext" type="number" min="0" max="100" step="5" value="10">
+            </label>
+          </div>
+          <div class="split-fields two">
+            <label>
+              手形回収月数
+              <input id="billMaturity" type="number" min="1" max="6" step="1" value="2">
+            </label>
+            <label>
+              電債回収月数
+              <input id="eReceivableMaturity" type="number" min="1" max="6" step="1" value="2">
+            </label>
+          </div>
+        </div>
+
+        <div class="control-group">
+          <h3>出金</h3>
+          <label>
+            仕入・外注率%
+            <input id="costRate" type="number" min="0" max="150" step="1" value="65">
+          </label>
+          <label>
+            固定費/月
+            <input id="fixedCosts" type="number" min="0" step="10000">
+          </label>
+          <label>
+            借入返済/月
+            <input id="loanRepayment" type="number" min="0" step="10000">
+          </label>
+          <label>
+            開始資金
+            <input id="openingCash" type="number" min="0" step="10000">
+          </label>
+          <label>
+            予測月数
+            <input id="forecastMonths" type="number" min="3" max="12" step="1" value="6">
+          </label>
+        </div>
+      </aside>
+
+      <section class="panel table-panel" aria-label="資金繰り表">
+        <div class="panel-head">
+          <div>
+            <h2>資金繰り表</h2>
+            <p id="basisText">PDF読込後に自動作成します。</p>
+          </div>
+          <button class="secondary" id="recalculateButton" type="button">再計算</button>
+        </div>
+        <div class="table-wrap">
+          <table id="cashflowTable">
+            <thead></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+    </section>
+
+    <section class="panel rows-panel" aria-label="読込科目">
+      <div class="panel-head tight">
+        <div>
+          <h2>読込科目</h2>
+          <p>必要な科目だけ資金繰り表に使います。</p>
+        </div>
+        <span id="rowCount">0件</span>
+      </div>
+      <div class="table-wrap small">
+        <table id="rowsTable">
+          <thead>
+            <tr>
+              <th>コード</th>
+              <th>科目</th>
+              <th>最新残高</th>
+              <th>分類</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <template id="emptyTableTemplate">
+    <tr>
+      <td colspan="8" class="empty-cell">勘定科目残高推移表を読み込むと、ここに月次資金繰り表が表示されます。</td>
+    </tr>
+  </template>
+
+  <script src="app.js"></script>
+</body>
+</html>

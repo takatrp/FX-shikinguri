@@ -82,6 +82,7 @@ const els = {
   eReceivableDetailsBody: document.querySelector("#eReceivableDetailsBody"),
   addBillDetail: document.querySelector("#addBillDetail"),
   addEReceivableDetail: document.querySelector("#addEReceivableDetail"),
+  collectionWarning: document.querySelector("#collectionWarning"),
   basisText: document.querySelector("#basisText"),
   rowsTable: document.querySelector("#rowsTable tbody"),
   rowCount: document.querySelector("#rowCount"),
@@ -175,6 +176,33 @@ function setMoneyInputValue(id, value) {
 
 function getCollectionMode() {
   return document.querySelector('input[name="collectionMode"]:checked')?.value || "simple";
+}
+
+function collectionPercentIds() {
+  return ["collectCurrent", "collectNext", "collectAfterNext", "collectBill", "collectEReceivable"];
+}
+
+function getCollectionPercentTotal() {
+  return collectionPercentIds().reduce((sum, id) => sum + Number(inputValue(id, 0) || 0), 0);
+}
+
+function formatPercentTotal(value) {
+  const rounded = Math.round((Number(value) || 0) * 100) / 100;
+  return Number.isInteger(rounded) ? String(rounded) : String(rounded).replace(/\.?0+$/, "");
+}
+
+function updateCollectionWarning(showDialog = false) {
+  const total = getCollectionPercentTotal();
+  const ok = Math.abs(total - 100) < 0.0001;
+  const message = `入金割合の合計が${formatPercentTotal(total)}%です。100%になるように調整してください。`;
+  if (els.collectionWarning) {
+    els.collectionWarning.textContent = ok ? "" : message;
+    els.collectionWarning.classList.toggle("show", !ok);
+  }
+  if (!ok && showDialog) {
+    alert(message);
+  }
+  return ok;
 }
 
 function createReceivableDetail(overrides = {}) {
@@ -1400,6 +1428,9 @@ function exportCsv() {
 }
 
 function printCashflowReport() {
+  if (!updateCollectionWarning(true)) {
+    return;
+  }
   if (!state.forecastRows.length) {
     buildForecast();
   }
@@ -1408,14 +1439,13 @@ function printCashflowReport() {
     return;
   }
   buildPrintReport();
-  window.print();
+  openPrintWindow();
 }
 
 function buildPrintReport() {
   const rows = state.forecastRows;
   const minimum = rows.reduce((min, row) => row.ending < min.ending ? row : min, rows[0]);
-  const collectionTotal = ["collectCurrent", "collectNext", "collectAfterNext", "collectBill", "collectEReceivable"]
-    .reduce((sum, id) => sum + Number(inputValue(id, 0) || 0), 0);
+  const collectionTotal = getCollectionPercentTotal();
   const modeText = getCollectionMode() === "detail" ? "厳密（対象月末明細の期日月に入金反映）" : "簡易（対象月末残高を回収月数で配分）";
 
   els.printReport.innerHTML = `
@@ -1436,6 +1466,65 @@ function buildPrintReport() {
       ${buildReportReceivableDetails()}
       ${buildReportSources()}
     </div>`;
+}
+
+function openPrintWindow() {
+  const reportHtml = els.printReport.innerHTML;
+  const printWindow = window.open("", "_blank", "width=1200,height=800");
+  if (!printWindow) {
+    alert("印刷用ウィンドウを開けませんでした。ポップアップ許可後にもう一度お試しください。");
+    window.print();
+    return;
+  }
+  printWindow.document.open();
+  printWindow.document.write(buildStandalonePrintHtml(reportHtml));
+  printWindow.document.close();
+  printWindow.focus();
+  setTimeout(() => {
+    printWindow.print();
+  }, 300);
+}
+
+function buildStandalonePrintHtml(reportHtml) {
+  return `<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <title>資金繰り予定表</title>
+  <style>${getStandalonePrintCss()}</style>
+</head>
+<body>
+  <main class="print-report">${reportHtml}</main>
+</body>
+</html>`;
+}
+
+function getStandalonePrintCss() {
+  return `
+    @page { size: A4 landscape; margin: 10mm; }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: #fff; color: #111827; font-family: "Yu Gothic", "Meiryo", sans-serif; }
+    .print-report { display: block; }
+    .print-page { width: 100%; }
+    .print-header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #111827; padding-bottom: 8px; margin-bottom: 10px; }
+    .print-header p { margin: 0 0 3px; font-size: 11px; color: #4b5563; }
+    .print-header h1 { margin: 0; font-size: 22px; letter-spacing: 0; }
+    .print-date { font-size: 12px; }
+    .print-section { margin-top: 10px; break-inside: avoid; }
+    .print-section h2 { margin: 0 0 5px; font-size: 14px; border-left: 4px solid #111827; padding-left: 6px; }
+    .print-section h3 { margin: 7px 0 4px; font-size: 12px; }
+    .print-meta, .print-cashflow, .print-assumptions { width: 100%; border-collapse: collapse; min-width: 0; }
+    .print-meta th, .print-meta td, .print-cashflow th, .print-cashflow td, .print-assumptions th, .print-assumptions td { border: 1px solid #9ca3af; padding: 4px 5px; font-size: 10px; white-space: normal; text-align: right; background: #fff; color: #111827; }
+    .print-meta th, .print-assumptions th, .print-cashflow th { background: #f3f4f6; font-weight: 700; }
+    .print-meta th, .print-meta td, .print-assumptions th, .print-assumptions td, .print-cashflow td:first-child, .print-cashflow th:first-child { text-align: left; position: static; }
+    .print-meta th { width: 90px; }
+    .print-summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+    .print-summary div { border: 1px solid #9ca3af; padding: 6px; }
+    .print-summary span, .print-summary em { display: block; font-size: 10px; color: #4b5563; font-style: normal; }
+    .print-summary strong { display: block; margin-top: 2px; font-size: 15px; }
+    .print-section-row td, .print-total-row td { background: #e5e7eb; font-weight: 700; }
+    .print-note { margin: 5px 0 0; font-size: 10px; color: #374151; }
+  `;
 }
 
 function buildReportMetaTable() {
@@ -1481,7 +1570,7 @@ function buildReportForecastTable(rows) {
 function buildReportAssumptions(modeText, collectionTotal) {
   const assumptions = [
     ["月商見込", `${formatYen(parseAmount(inputValue("salesForecast")))}円`],
-    ["回収内訳", `当月 ${inputValue("collectCurrent", 0)}% / 翌月 ${inputValue("collectNext", 0)}% / 翌々月 ${inputValue("collectAfterNext", 0)}% / 手形 ${inputValue("collectBill", 0)}% / 電債 ${inputValue("collectEReceivable", 0)}%（合計 ${collectionTotal}%）`],
+    ["回収内訳", `当月 ${inputValue("collectCurrent", 0)}% / 翌月 ${inputValue("collectNext", 0)}% / 翌々月 ${inputValue("collectAfterNext", 0)}% / 手形 ${inputValue("collectBill", 0)}% / 電債 ${inputValue("collectEReceivable", 0)}%（合計 ${formatPercentTotal(collectionTotal)}%）`],
     ["手形・電債の計算", modeText],
     ["手形回収月数", `${inputValue("billMaturity", 0)}か月`],
     ["電債回収月数", `${inputValue("eReceivableMaturity", 0)}か月`],
@@ -1493,7 +1582,7 @@ function buildReportAssumptions(modeText, collectionTotal) {
     <h2>計算前提・仮定</h2>
     <table class="print-assumptions"><tbody>${assumptions.map(([label, value]) =>
       `<tr><th>${escapeHtml(label)}</th><td>${escapeHtml(value)}</td></tr>`).join("")}</tbody></table>
-    ${collectionTotal !== 100 ? `<p class="print-note">注: 回収内訳の合計が100%ではありません。未設定分または重複設定がないか確認してください。</p>` : ""}
+    ${Math.abs(collectionTotal - 100) >= 0.0001 ? `<p class="print-note">注: 回収内訳の合計が100%ではありません。未設定分または重複設定がないか確認してください。</p>` : ""}
   </section>`;
 }
 
@@ -1609,12 +1698,14 @@ inputIds.forEach((id) => {
     input.addEventListener("input", () => {
       renderRows();
       renderMetrics();
+      if (collectionPercentIds().includes(id)) updateCollectionWarning(false);
       buildForecast();
     });
   }
   input.addEventListener("change", () => {
     renderRows();
     renderMetrics();
+    if (collectionPercentIds().includes(id)) updateCollectionWarning(true);
     buildForecast();
   });
 });
@@ -1622,5 +1713,6 @@ inputIds.forEach((id) => {
 state.billDetails.push(createReceivableDetail());
 state.eReceivableDetails.push(createReceivableDetail());
 if (!inputValue("reportDate")) document.querySelector("#reportDate").value = todayIso();
+updateCollectionWarning(false);
 renderReceivableDetails();
 renderEmptyTable();

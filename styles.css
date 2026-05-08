@@ -411,6 +411,22 @@ label input {
   margin-top: 14px;
 }
 
+.collection-warning {
+  display: none;
+  margin: 10px 0 0;
+  padding: 9px 10px;
+  border: 1px solid #f5b5ad;
+  border-radius: 8px;
+  background: #fff5f4;
+  color: var(--red);
+  font-weight: 800;
+  font-size: 12px;
+}
+
+.collection-warning.show {
+  display: block;
+}
+
 .detail-inputs summary {
   cursor: pointer;
   color: var(--navy);

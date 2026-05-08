@@ -1,5 +1,17 @@
-const PDFJS_URL = "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.mjs";
-const PDFJS_WORKER_URL = "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.worker.mjs";
+const PDFJS_SOURCES = [
+  {
+    module: "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.mjs",
+    worker: "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.worker.mjs",
+    cMap: "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/cmaps/",
+    fonts: "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/standard_fonts/"
+  },
+  {
+    module: "https://unpkg.com/pdfjs-dist@4.10.38/build/pdf.mjs",
+    worker: "https://unpkg.com/pdfjs-dist@4.10.38/build/pdf.worker.mjs",
+    cMap: "https://unpkg.com/pdfjs-dist@4.10.38/cmaps/",
+    fonts: "https://unpkg.com/pdfjs-dist@4.10.38/standard_fonts/"
+  }
+];
 
 const ACCOUNT_NAMES = {
   "1000": "資産合計",
@@ -50,6 +62,8 @@ const CATEGORY_LABELS = {
 
 const els = {
   pdfInput: document.querySelector("#pdfInput"),
+  dropZone: document.querySelector(".drop-zone"),
+  importMessage: document.querySelector("#importMessage"),
   rawTextInput: document.querySelector("#rawTextInput"),
   parseTextButton: document.querySelector("#parseTextButton"),
   sampleButton: document.querySelector("#sampleButton"),
@@ -498,6 +512,12 @@ function renderRows() {
 }
 
 function acceptParsedData(parsed, sourceLabel) {
+  if (!parsed.rows.length || !parsed.months.length) {
+    const rowText = parsed.rows.length ? `${parsed.rows.length}行` : "科目行なし";
+    const monthText = parsed.months.length ? `${parsed.months.length}か月` : "月列なし";
+    throw new Error(`読み取り結果が不足しています（${rowText}、${monthText}）。`);
+  }
+
   state.months = parsed.months;
   state.rows = parsed.rows;
   state.manual = { otherIn: [], otherOut: [], loanRepayment: [] };
@@ -508,27 +528,46 @@ function acceptParsedData(parsed, sourceLabel) {
 
   els.importStatus.textContent = `${sourceLabel}読込`;
   els.importStatus.classList.add("ready");
+  setImportMessage(`${parsed.months.length}か月、${parsed.rows.length}科目を読み取りました。`, false);
 }
 
 async function loadPdfJs() {
   if (!pdfjsPromise) {
-    pdfjsPromise = import(PDFJS_URL).then((pdfjs) => {
-      pdfjs.GlobalWorkerOptions.workerSrc = PDFJS_WORKER_URL;
-      return pdfjs;
+    pdfjsPromise = (async () => {
+      let lastError;
+      for (const source of PDFJS_SOURCES) {
+        try {
+          const pdfjs = await import(source.module);
+          pdfjs.GlobalWorkerOptions.workerSrc = source.worker;
+          return { pdfjs, source };
+        } catch (error) {
+          lastError = error;
+        }
+      }
+      throw new Error(`PDF.jsを読み込めませんでした。ネットワーク接続を確認してください。${lastError ? ` (${lastError.message})` : ""}`);
+    })().catch((error) => {
+      pdfjsPromise = null;
+      throw error;
     });
   }
   return pdfjsPromise;
 }
 
 async function extractPdfText(file) {
-  const pdfjs = await loadPdfJs();
+  const { pdfjs, source } = await loadPdfJs();
   const buffer = await file.arrayBuffer();
-  const pdf = await pdfjs.getDocument({ data: buffer }).promise;
+  const pdf = await pdfjs.getDocument({
+    data: buffer,
+    cMapUrl: source.cMap,
+    cMapPacked: true,
+    standardFontDataUrl: source.fonts,
+    useSystemFonts: true
+  }).promise;
   const pages = [];
 
   for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
     const page = await pdf.getPage(pageNumber);
-    const content = await page.getTextContent();
+    const content = await page.getTextContent({ includeMarkedContent: false });
     pages.push(textItemsToLines(content.items));
   }
 
@@ -537,7 +576,8 @@ async function extractPdfText(file) {
 
 function textItemsToLines(items) {
   const lines = [];
-  const sorted = [...items].sort((a, b) => {
+  const usableItems = items.filter((item) => item && typeof item.str === "string" && item.str.trim());
+  const sorted = [...usableItems].sort((a, b) => {
     const ay = Math.round(a.transform[5]);
     const by = Math.round(b.transform[5]);
     if (Math.abs(by - ay) > 2) return by - ay;
@@ -555,8 +595,44 @@ function textItemsToLines(items) {
   });
 
   return lines
-    .map((line) => line.items.sort((a, b) => a.transform[4] - b.transform[4]).map((item) => item.str).join(" "))
+    .map((line) => {
+      const ordered = line.items.sort((a, b) => a.transform[4] - b.transform[4]);
+      return ordered.reduce((text, item, index) => {
+        const prev = ordered[index - 1];
+        const gap = prev ? item.transform[4] - (prev.transform[4] + (prev.width || 0)) : 0;
+        const spacer = gap > 4 ? " " : "";
+        return `${text}${spacer}${item.str}`;
+      }, "");
+    })
     .join("\n");
+}
+
+function setImportMessage(message, isError = false) {
+  els.importMessage.textContent = message;
+  els.importMessage.classList.toggle("error", isError);
+}
+
+async function processPdfFile(file) {
+  if (!file) return;
+  if (file.type && file.type !== "application/pdf") {
+    setImportMessage("PDFファイルを指定してください。", true);
+    return;
+  }
+
+  els.importStatus.textContent = "読込中";
+  els.importStatus.classList.remove("ready");
+  setImportMessage("PDFから文字と月次残高を読み取っています。", false);
+
+  try {
+    const text = await extractPdfText(file);
+    els.rawTextInput.value = text;
+    acceptParsedData(parseBalanceText(text), "PDF");
+  } catch (error) {
+    els.importStatus.textContent = "要確認";
+    els.importStatus.classList.remove("ready");
+    console.error(error);
+    setImportMessage(error.message || "PDF読込に失敗しました。テキスト読込を使ってください。", true);
+  }
 }
 
 function sampleText() {
@@ -604,23 +680,36 @@ function exportCsv() {
 }
 
 els.pdfInput.addEventListener("change", async (event) => {
-  const file = event.target.files[0];
-  if (!file) return;
-  els.importStatus.textContent = "読込中";
-  els.importStatus.classList.remove("ready");
-  try {
-    const text = await extractPdfText(file);
-    els.rawTextInput.value = text;
-    acceptParsedData(parseBalanceText(text), "PDF");
-  } catch (error) {
-    els.importStatus.textContent = "要確認";
-    console.error(error);
-    alert("PDF読込に失敗しました。テキスト読込を使ってください。");
-  }
+  await processPdfFile(event.target.files[0]);
+});
+
+["dragenter", "dragover"].forEach((eventName) => {
+  els.dropZone.addEventListener(eventName, (event) => {
+    event.preventDefault();
+    els.dropZone.classList.add("drag-over");
+  });
+});
+
+["dragleave", "drop"].forEach((eventName) => {
+  els.dropZone.addEventListener(eventName, (event) => {
+    event.preventDefault();
+    els.dropZone.classList.remove("drag-over");
+  });
+});
+
+els.dropZone.addEventListener("drop", async (event) => {
+  const file = event.dataTransfer.files[0];
+  await processPdfFile(file);
 });
 
 els.parseTextButton.addEventListener("click", () => {
-  acceptParsedData(parseBalanceText(els.rawTextInput.value), "テキスト");
+  try {
+    acceptParsedData(parseBalanceText(els.rawTextInput.value), "テキスト");
+  } catch (error) {
+    els.importStatus.textContent = "要確認";
+    els.importStatus.classList.remove("ready");
+    setImportMessage(error.message, true);
+  }
 });
 
 els.sampleButton.addEventListener("click", () => {

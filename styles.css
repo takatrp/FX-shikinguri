@@ -141,6 +141,13 @@ button.ghost {
   border-radius: 8px;
   background: var(--blue-soft);
   cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease, transform 0.15s ease;
+}
+
+.drop-zone.drag-over {
+  border-color: var(--green);
+  background: var(--green-soft);
+  transform: translateY(-1px);
 }
 
 .drop-zone input {
@@ -180,6 +187,18 @@ button.ghost {
 
 .text-import {
   margin: 14px 20px 0;
+}
+
+.import-message {
+  margin: 10px 20px 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.import-message.error {
+  color: var(--red);
+  font-weight: 700;
 }
 
 .text-import summary {
